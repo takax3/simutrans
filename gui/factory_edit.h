@@ -42,6 +42,8 @@ private:
 	button_t bt_must_supply;
 	button_t bt_must_product;
 
+	button_t bt_copy_io_settings;
+
 	gui_numberinput_t inp_production;
 	gui_label_t lb_name_filter_input;
 	static char name_filter_value[64];

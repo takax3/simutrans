@@ -7,6 +7,7 @@
 
 #include "../simworld.h"
 #include "../simtool.h"
+#include "../sys/simsys.h"
 
 #include "../bauer/fabrikbauer.h"
 
@@ -21,6 +22,7 @@
 #include "../utils/cbuffer_t.h"
 
 #include "factory_edit.h"
+#include "messagebox.h"
 #include "components/gui_label.h"
 
 char factory_edit_frame_t::name_filter_value[64]="";
@@ -152,8 +154,8 @@ factory_edit_frame_t::factory_edit_frame_t(player_t* player_) :
 	cb_sortedby.new_component<gui_sorting_item_t>(gui_sorting_item_t::BY_SIZE);
 	cb_sortedby.new_component<gui_sorting_item_t>(gui_sorting_item_t::BY_GOODS_NUMBER);
 
-	// rotation, production
-	gui_aligned_container_t *tbl = cont_options.add_table(2,2);
+	// rotation, production, copy io settings
+	gui_aligned_container_t *tbl = cont_options.add_table(2,3);
 	tbl->new_component<gui_label_t>("Rotation");
 	tbl->add_component(&cb_rotation);
 	cb_rotation.add_listener(this);
@@ -165,6 +167,12 @@ factory_edit_frame_t::factory_edit_frame_t(player_t* player_) :
 	inp_production.add_listener( this );
 	tbl->add_component(&inp_production);
 	cont_options.end_table();
+
+	tbl->new_component<gui_fill_t>();
+	tbl->add_component(&bt_copy_io_settings);
+	bt_copy_io_settings.init( button_t::roundbox, "Copy I/O Settings" );
+	bt_copy_io_settings.set_tooltip("Copy the input/output goods settings all factories");
+	bt_copy_io_settings.add_listener(this);
 
 	fill_list();
 
@@ -287,6 +295,41 @@ bool factory_edit_frame_t::action_triggered( gui_action_creator_t *comp,value_t 
 	}
 	else if( comp == &cb_rotation) {
 		change_item_info( scl.get_selection() );
+	}
+	else if( comp == &bt_copy_io_settings ) {
+		cbuffer_t clipboard;
+		clipboard.append("name\tname(raw)\tI/O\tGood\tGood(raw)\tCatg\tCatg(raw)\n");
+		for(sint32 i=0; i<(sint32)factory_list.get_count(); i++) {
+			const factory_desc_t *desc = factory_list[i];
+			if (desc->get_product_count() > 0) {
+				for(sint32 j=0; j < desc->get_product_count(); j++) {
+					const factory_product_desc_t *product = desc->get_product(j);
+					clipboard.printf("\"%s\"\t\"%s\"\tOutput\t\"%s\"\t\"%s\"\t\"%s\"\t\"%s\"\n",
+						translator::translate(desc->get_name()),
+						desc->get_name(),
+						translator::translate(product->get_output_type()->get_name()),
+						product->get_output_type()->get_name(),
+						translator::translate(product->get_output_type()->get_catg_name()),
+						product->get_output_type()->get_catg_name()
+					);
+				}
+			}
+			if (desc->get_supplier_count() > 0) {
+				for(sint32 j=0; j < desc->get_supplier_count(); j++) {
+					const factory_supplier_desc_t *supplier = desc->get_supplier(j);
+					clipboard.printf("\"%s\"\t\"%s\"\tInput\t\"%s\"\t\"%s\"\t\"%s\"\t\"%s\"\n",
+						translator::translate(desc->get_name()),
+						desc->get_name(),
+						translator::translate(supplier->get_input_type()->get_name()),
+						supplier->get_input_type()->get_name(),
+						translator::translate(supplier->get_input_type()->get_catg_name()),
+						supplier->get_input_type()->get_catg_name()
+					);
+				}
+			}
+		}
+		dr_copy( clipboard, clipboard.len() );
+		create_win( new news_img("Factory I/Os were copied to clipboard.\n"), w_time_delete, magic_none );
 	}
 	else if(fac_desc) {
 		if (comp==&inp_production) {
