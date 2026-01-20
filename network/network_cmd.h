@@ -119,6 +119,7 @@ public:
 		SRVC_UNLOCK_COMPANY   = 13,
 		SRVC_REMOVE_COMPANY   = 14,
 		SRVC_LOCK_COMPANY     = 15,
+		SRVC_GET_TIME         = 16,
 		SRVC_MAX
 	};
 

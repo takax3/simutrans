@@ -124,6 +124,7 @@ void nwc_service_t::rdwr()
 		case SRVC_ADMIN_MSG:
 		case SRVC_GET_COMPANY_LIST:
 		case SRVC_GET_COMPANY_INFO:
+		case SRVC_GET_TIME:
 			packet->rdwr_str(text);
 			break;
 

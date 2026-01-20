@@ -447,6 +447,9 @@ void usage()
 		"      force-sync\n"
 		"        Force server to send sync command in order to save & reload the game\n"
 		"\n"
+		"      time\n"
+		"        Get server time\n"
+		"\n"
 		"    Return codes:\n"
 		"      0 .. success\n"
 		"      1 .. server not reachable\n"
@@ -551,7 +554,8 @@ int main(int argc, char* argv[]) {
 		{"info-company",   true,  nwc_service_t::SRVC_GET_COMPANY_INFO, 1, &simple_gettext_command},
 		{"unlock-company", true,  nwc_service_t::SRVC_UNLOCK_COMPANY,   1, &simple_command},
 		{"remove-company", true,  nwc_service_t::SRVC_REMOVE_COMPANY,   1, &simple_command},
-		{"lock-company",   true,  nwc_service_t::SRVC_LOCK_COMPANY,     2, &lock_company}
+		{"lock-company",   true,  nwc_service_t::SRVC_LOCK_COMPANY,     2, &lock_company},
+		{"time",        true,  nwc_service_t::SRVC_GET_TIME,        0, &simple_gettext_command}
 	};
 	int numcommands = lengthof(commands);
 

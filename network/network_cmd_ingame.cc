@@ -1462,6 +1462,20 @@ bool nwc_service_t::execute(karte_t *welt)
 			break;
 		}
 
+		case SRVC_GET_TIME: {
+			cbuffer_t buf;
+			buf.printf("Current tick: %d\n", welt->get_ticks());
+			buf.printf("Current date: %d/%d\n", welt->get_last_year(), welt->get_last_month() + 1);
+			buf.printf("Ticks this month: %d\n", welt->get_ticks() - welt->get_next_month_ticks() + welt->ticks_per_world_month);
+			buf.printf("Ticks per month: %d\n", welt->ticks_per_world_month);
+
+			nwc_service_t nws;
+			nws.flag = SRVC_GET_TIME;
+			nws.text = strdup(buf);
+			nws.send(packet->get_sender());
+			break;
+		}
+
 		default: ;
 	}
 	return true; // to delete
