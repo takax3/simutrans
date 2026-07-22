@@ -32,6 +32,8 @@ servers:
 tags:
   - name: API description
     description: Machine-readable descriptions of this API.
+  - name: Map
+    description: Metadata and OTRP diagram time for the currently loaded map.
   - name: Companies
     description: Companies in the currently loaded map.
   - name: Lines
@@ -102,6 +104,77 @@ paths:
                 additionalProperties: true
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+  /api/v1/map-info:
+    options:
+      operationId: preflightMapInfo
+      summary: CORS preflight
+      responses:
+        "204":
+          $ref: "#/components/responses/CorsPreflight"
+    get:
+      tags: [Map]
+      operationId: getMapInfo
+      summary: Get map and OTRP diagram time information
+      description: |
+        Returns metadata for the currently loaded map. Tick values expose both
+        the Simutrans world clock and the OTRP divided time used by timetables.
+        No minimap image, save filename, email address, or client address is exposed.
+      responses:
+        "200":
+          description: Map information snapshot.
+          headers:
+            X-Simutrans-World-Epoch:
+              $ref: "#/components/headers/WorldEpoch"
+            X-Simutrans-Snapshot-Sequence:
+              $ref: "#/components/headers/SnapshotSequence"
+            X-Simutrans-Sync-Step:
+              $ref: "#/components/headers/SyncStep"
+            X-Simutrans-Generated-At-Ms:
+              $ref: "#/components/headers/GeneratedAtMs"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MapInfo"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/time:
+    options:
+      operationId: preflightTime
+      summary: CORS preflight
+      responses:
+        "204":
+          $ref: "#/components/responses/CorsPreflight"
+    get:
+      tags: [Map]
+      operationId: getTime
+      summary: Get current Simutrans and OTRP diagram time
+      description: Returns only the current time snapshot without other map metadata.
+      responses:
+        "200":
+          description: Time snapshot.
+          headers:
+            X-Simutrans-World-Epoch:
+              $ref: "#/components/headers/WorldEpoch"
+            X-Simutrans-Snapshot-Sequence:
+              $ref: "#/components/headers/SnapshotSequence"
+            X-Simutrans-Sync-Step:
+              $ref: "#/components/headers/SyncStep"
+            X-Simutrans-Generated-At-Ms:
+              $ref: "#/components/headers/GeneratedAtMs"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeSnapshot"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /api/v1/companies:
     options:
       operationId: preflightCompanies
@@ -375,8 +448,14 @@ components:
           additionalProperties: false
         endpoints:
           type: object
-          required: [companies, lines, convoys, convoy_positions]
+          required: [time, map_info, companies, lines, convoys, convoy_positions]
           properties:
+            time:
+              type: string
+              const: /api/v1/time
+            map_info:
+              type: string
+              const: /api/v1/map-info
             companies:
               type: string
               const: /api/v1/companies
@@ -397,6 +476,135 @@ components:
       properties:
         error:
           type: string
+      additionalProperties: false
+    MapInfo:
+      type: object
+      required: [api_version, world_epoch, sync_step, snapshot_sequence, generated_at_ms, time, size, settings, counts, compatibility, server]
+      properties:
+        api_version:
+          type: string
+          const: v1
+        world_epoch:
+          type: integer
+          format: int64
+          minimum: 0
+        sync_step:
+          type: integer
+          format: int64
+          minimum: 0
+        snapshot_sequence:
+          type: integer
+          format: int64
+          minimum: 0
+        generated_at_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        time:
+          $ref: "#/components/schemas/MapTime"
+        size:
+          $ref: "#/components/schemas/MapSize"
+        settings:
+          $ref: "#/components/schemas/MapSettings"
+        counts:
+          $ref: "#/components/schemas/MapCounts"
+        compatibility:
+          $ref: "#/components/schemas/MapCompatibility"
+        server:
+          $ref: "#/components/schemas/ServerInfo"
+      additionalProperties: false
+    TimeSnapshot:
+      type: object
+      required: [api_version, world_epoch, sync_step, snapshot_sequence, generated_at_ms, time]
+      properties:
+        api_version:
+          type: string
+          const: v1
+        world_epoch: {type: integer, format: int64, minimum: 0}
+        sync_step: {type: integer, format: int64, minimum: 0}
+        snapshot_sequence: {type: integer, format: int64, minimum: 0}
+        generated_at_ms: {type: integer, format: int64, minimum: 0}
+        time:
+          $ref: "#/components/schemas/MapTime"
+      additionalProperties: false
+    MapTime:
+      type: object
+      required: [year, month, tick, ticks_per_month, tick_in_month, diagram_tick, diagram_ticks_per_month, diagram_time, paused, time_multiplier]
+      properties:
+        year: {type: integer}
+        month: {type: integer, minimum: 1, maximum: 12}
+        tick: {type: integer, format: int64, minimum: 0}
+        ticks_per_month: {type: integer, format: int64, minimum: 1}
+        tick_in_month: {type: integer, format: int64, minimum: 0}
+        diagram_tick:
+          type: integer
+          minimum: 0
+          description: Current OTRP divided-time unit within the month.
+        diagram_ticks_per_month:
+          type: integer
+          minimum: 1
+          description: The spacing_shift_divisor setting; normally 1440.
+        diagram_time:
+          type: string
+          pattern: "^[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+        paused: {type: boolean}
+        time_multiplier:
+          type: integer
+          description: Internal simulation speed multiplier; normal speed is 16.
+      additionalProperties: false
+    MapSize:
+      type: object
+      required: [width, height]
+      properties:
+        width: {type: integer, minimum: 1}
+        height: {type: integer, minimum: 1}
+      additionalProperties: false
+    MapSettings:
+      type: object
+      required: [freeplay, timeline_enabled, bits_per_month, name_language]
+      properties:
+        freeplay: {type: boolean}
+        timeline_enabled: {type: boolean}
+        bits_per_month: {type: integer, minimum: 1}
+        name_language: {type: string}
+      additionalProperties: false
+    MapCounts:
+      type: object
+      required: [towns, citizens, factories, tourist_attractions, convoys, stops, companies, locked_companies, playing_clients]
+      properties:
+        towns: {type: integer, minimum: 0}
+        citizens: {type: integer, format: int64, minimum: 0}
+        factories: {type: integer, minimum: 0}
+        tourist_attractions: {type: integer, minimum: 0}
+        convoys: {type: integer, minimum: 0}
+        stops: {type: integer, minimum: 0}
+        companies: {type: integer, minimum: 0}
+        locked_companies: {type: integer, minimum: 0}
+        playing_clients: {type: integer, minimum: 0}
+      additionalProperties: false
+    MapCompatibility:
+      type: object
+      required: [engine_revision, otrp_version, pak_name, pakset_checksum]
+      properties:
+        engine_revision: {type: integer, minimum: 0}
+        otrp_version:
+          type: string
+          description: Human-readable OTRP version, for example 57.0.1.
+        pak_name: {type: string}
+        pakset_checksum:
+          type: string
+          pattern: "^[0-9A-F]{40}$"
+      additionalProperties: false
+    ServerInfo:
+      type: object
+      required: [network_mode, server_mode, name, comments, pak_url, info_url]
+      properties:
+        network_mode: {type: boolean}
+        server_mode: {type: boolean}
+        name: {type: string}
+        comments: {type: string}
+        pak_url: {type: string}
+        info_url: {type: string}
       additionalProperties: false
     CompanyList:
       type: object
@@ -636,6 +844,10 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
       "description": "Machine-readable descriptions of this API."
     },
     {
+      "name": "Map",
+      "description": "Metadata and OTRP diagram time for the currently loaded map."
+    },
+    {
       "name": "Companies",
       "description": "Companies in the currently loaded map."
     },
@@ -747,6 +959,114 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
           },
           "405": {
             "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/api/v1/map-info": {
+      "options": {
+        "operationId": "preflightMapInfo",
+        "summary": "CORS preflight",
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/CorsPreflight"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Map"
+        ],
+        "operationId": "getMapInfo",
+        "summary": "Get map and OTRP diagram time information",
+        "description": "Returns metadata for the currently loaded map. Tick values expose both\nthe Simutrans world clock and the OTRP divided time used by timetables.\nNo minimap image, save filename, email address, or client address is exposed.\n",
+        "responses": {
+          "200": {
+            "description": "Map information snapshot.",
+            "headers": {
+              "X-Simutrans-World-Epoch": {
+                "$ref": "#/components/headers/WorldEpoch"
+              },
+              "X-Simutrans-Snapshot-Sequence": {
+                "$ref": "#/components/headers/SnapshotSequence"
+              },
+              "X-Simutrans-Sync-Step": {
+                "$ref": "#/components/headers/SyncStep"
+              },
+              "X-Simutrans-Generated-At-Ms": {
+                "$ref": "#/components/headers/GeneratedAtMs"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/time": {
+      "options": {
+        "operationId": "preflightTime",
+        "summary": "CORS preflight",
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/CorsPreflight"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Map"
+        ],
+        "operationId": "getTime",
+        "summary": "Get current Simutrans and OTRP diagram time",
+        "description": "Returns only the current time snapshot without other map metadata.",
+        "responses": {
+          "200": {
+            "description": "Time snapshot.",
+            "headers": {
+              "X-Simutrans-World-Epoch": {
+                "$ref": "#/components/headers/WorldEpoch"
+              },
+              "X-Simutrans-Snapshot-Sequence": {
+                "$ref": "#/components/headers/SnapshotSequence"
+              },
+              "X-Simutrans-Sync-Step": {
+                "$ref": "#/components/headers/SyncStep"
+              },
+              "X-Simutrans-Generated-At-Ms": {
+                "$ref": "#/components/headers/GeneratedAtMs"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -1162,12 +1482,22 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
           "endpoints": {
             "type": "object",
             "required": [
+              "time",
+              "map_info",
               "companies",
               "lines",
               "convoys",
               "convoy_positions"
             ],
             "properties": {
+              "time": {
+                "type": "string",
+                "const": "/api/v1/time"
+              },
+              "map_info": {
+                "type": "string",
+                "const": "/api/v1/map-info"
+              },
               "companies": {
                 "type": "string",
                 "const": "/api/v1/companies"
@@ -1197,6 +1527,326 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
         ],
         "properties": {
           "error": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MapInfo": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "world_epoch",
+          "sync_step",
+          "snapshot_sequence",
+          "generated_at_ms",
+          "time",
+          "size",
+          "settings",
+          "counts",
+          "compatibility",
+          "server"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "string",
+            "const": "v1"
+          },
+          "world_epoch": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sync_step": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "snapshot_sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "generated_at_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "time": {
+            "$ref": "#/components/schemas/MapTime"
+          },
+          "size": {
+            "$ref": "#/components/schemas/MapSize"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/MapSettings"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/MapCounts"
+          },
+          "compatibility": {
+            "$ref": "#/components/schemas/MapCompatibility"
+          },
+          "server": {
+            "$ref": "#/components/schemas/ServerInfo"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TimeSnapshot": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "world_epoch",
+          "sync_step",
+          "snapshot_sequence",
+          "generated_at_ms",
+          "time"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "string",
+            "const": "v1"
+          },
+          "world_epoch": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sync_step": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "snapshot_sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "generated_at_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "time": {
+            "$ref": "#/components/schemas/MapTime"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MapTime": {
+        "type": "object",
+        "required": [
+          "year",
+          "month",
+          "tick",
+          "ticks_per_month",
+          "tick_in_month",
+          "diagram_tick",
+          "diagram_ticks_per_month",
+          "diagram_time",
+          "paused",
+          "time_multiplier"
+        ],
+        "properties": {
+          "year": {
+            "type": "integer"
+          },
+          "month": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12
+          },
+          "tick": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ticks_per_month": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "tick_in_month": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "diagram_tick": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Current OTRP divided-time unit within the month."
+          },
+          "diagram_ticks_per_month": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The spacing_shift_divisor setting; normally 1440."
+          },
+          "diagram_time": {
+            "type": "string",
+            "pattern": "^[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "time_multiplier": {
+            "type": "integer",
+            "description": "Internal simulation speed multiplier; normal speed is 16."
+          }
+        },
+        "additionalProperties": false
+      },
+      "MapSize": {
+        "type": "object",
+        "required": [
+          "width",
+          "height"
+        ],
+        "properties": {
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "MapSettings": {
+        "type": "object",
+        "required": [
+          "freeplay",
+          "timeline_enabled",
+          "bits_per_month",
+          "name_language"
+        ],
+        "properties": {
+          "freeplay": {
+            "type": "boolean"
+          },
+          "timeline_enabled": {
+            "type": "boolean"
+          },
+          "bits_per_month": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name_language": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MapCounts": {
+        "type": "object",
+        "required": [
+          "towns",
+          "citizens",
+          "factories",
+          "tourist_attractions",
+          "convoys",
+          "stops",
+          "companies",
+          "locked_companies",
+          "playing_clients"
+        ],
+        "properties": {
+          "towns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "citizens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "factories": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tourist_attractions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "convoys": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stops": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "companies": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "locked_companies": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "playing_clients": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "MapCompatibility": {
+        "type": "object",
+        "required": [
+          "engine_revision",
+          "otrp_version",
+          "pak_name",
+          "pakset_checksum"
+        ],
+        "properties": {
+          "engine_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "otrp_version": {
+            "type": "string",
+            "description": "Human-readable OTRP version, for example 57.0.1."
+          },
+          "pak_name": {
+            "type": "string"
+          },
+          "pakset_checksum": {
+            "type": "string",
+            "pattern": "^[0-9A-F]{40}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ServerInfo": {
+        "type": "object",
+        "required": [
+          "network_mode",
+          "server_mode",
+          "name",
+          "comments",
+          "pak_url",
+          "info_url"
+        ],
+        "properties": {
+          "network_mode": {
+            "type": "boolean"
+          },
+          "server_mode": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "comments": {
+            "type": "string"
+          },
+          "pak_url": {
+            "type": "string"
+          },
+          "info_url": {
             "type": "string"
           }
         },

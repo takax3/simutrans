@@ -21,3 +21,12 @@ The server accepts read-only browser access from any origin and handles CORS
 preflight requests. Swagger UI running on another localhost port can load either
 OpenAPI URL and use its `Try it out` actions. Cookies and other credentialed
 CORS requests are not supported.
+
+`GET /api/v1/map-info` returns the current map dimensions, date, object counts,
+server and pakset compatibility metadata, and the raw and divided OTRP clock
+values used by timetable diagrams. It intentionally excludes the minimap image,
+save filename, server email address, and client network addresses.
+
+`GET /api/v1/time` returns the same clock object without the other map metadata
+for clients that poll time frequently. Map compatibility information also
+contains the human-readable OTRP version.

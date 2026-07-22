@@ -18,16 +18,25 @@
 #endif
 
 #include "../dataobj/koord3d.h"
+#include "../dataobj/environment.h"
 #include "../dataobj/schedule.h"
+#include "../dataobj/translator.h"
+#include "../descriptor/ground_desc.h"
 #include "../linehandle_t.h"
+#include "../network/network_socket_list.h"
+#include "../network/pakset_info.h"
 #include "../player/simplay.h"
+#include "../simcity.h"
 #include "../simconvoi.h"
 #include "../simconst.h"
 #include "../simdebug.h"
+#include "../simhalt.h"
 #include "../simline.h"
 #include "../simunits.h"
+#include "../simversion.h"
 #include "../simworld.h"
 #include "../sys/simsys.h"
+#include "../utils/simstring.h"
 #include "../vehicle/simvehicle.h"
 
 std::vector<SOCKET> rest_api_server_t::listen_socks;
@@ -378,10 +387,130 @@ static bool is_known_path(const std::string &path)
 	return path == "/" ||
 		path == "/api/v1/openapi.yaml" ||
 		path == "/api/v1/openapi.json" ||
+		path == "/api/v1/time" ||
+		path == "/api/v1/map-info" ||
 		path == "/api/v1/companies" ||
 		path == "/api/v1/lines" ||
 		path == "/api/v1/convoys" ||
 		path == "/api/v1/convoy-positions";
+}
+
+static void append_time_json(std::ostringstream &body, karte_t *world)
+{
+	const settings_t &settings = world->get_settings();
+	const uint32 tick = world->get_ticks();
+	const uint32 ticks_per_month = world->ticks_per_world_month;
+	const uint32 tick_in_month = tick % ticks_per_month;
+	const uint16 diagram_ticks_per_month = settings.get_spacing_shift_divisor();
+	const uint16 diagram_tick = static_cast<uint16>(
+		static_cast<uint64>(tick_in_month) * diagram_ticks_per_month / ticks_per_month);
+
+	// Keep this conversion identical to the OTRP time displayed in the status bar.
+	const uint32 seconds_per_diagram_tick = 86400 / diagram_ticks_per_month;
+	uint32 diagram_seconds = static_cast<uint32>(diagram_tick) * seconds_per_diagram_tick;
+	const uint32 diagram_hour = diagram_seconds / 3600;
+	diagram_seconds -= diagram_hour * 3600;
+	const uint32 diagram_minute = diagram_seconds / 60;
+	const uint32 diagram_second = diagram_seconds % 60;
+	char diagram_time[16];
+	snprintf(diagram_time, sizeof(diagram_time), "%02u:%02u:%02u",
+		diagram_hour, diagram_minute, diagram_second);
+
+	const uint32 current_year_month = world->get_current_month();
+	body << "{\"year\":" << current_year_month / 12
+		<< ",\"month\":" << current_year_month % 12 + 1
+		<< ",\"tick\":" << tick
+		<< ",\"ticks_per_month\":" << ticks_per_month
+		<< ",\"tick_in_month\":" << tick_in_month
+		<< ",\"diagram_tick\":" << diagram_tick
+		<< ",\"diagram_ticks_per_month\":" << diagram_ticks_per_month
+		<< ",\"diagram_time\":\"" << diagram_time << '"'
+		<< ",\"paused\":" << (world->is_paused() ? "true" : "false")
+		<< ",\"time_multiplier\":" << world->get_time_multiplier() << '}';
+}
+
+static std::string make_time_json(karte_t *world, uint64 epoch, uint64 sequence, uint32 generated_at)
+{
+	std::ostringstream body;
+	body << "{\"api_version\":\"v1\",\"world_epoch\":" << epoch
+		<< ",\"sync_step\":" << world->get_sync_steps()
+		<< ",\"snapshot_sequence\":" << sequence
+		<< ",\"generated_at_ms\":" << generated_at
+		<< ",\"time\":";
+	append_time_json(body, world);
+	body << "}\n";
+	return body.str();
+}
+
+static std::string make_map_info_json(karte_t *world, uint64 epoch, uint64 sequence, uint32 generated_at)
+{
+	const settings_t &settings = world->get_settings();
+
+	uint64 citizens = 0;
+	FOR(weighted_vector_tpl<stadt_t *>, const city, world->get_cities()) {
+		citizens += city->get_einwohner();
+	}
+
+	uint32 company_count = 0;
+	uint32 locked_company_count = 0;
+	for (uint8 i = 0; i < MAX_PLAYER_COUNT; ++i) {
+		if (player_t *company = world->get_player(i)) {
+			++company_count;
+			if (!company->access_password_hash().empty()) {
+				++locked_company_count;
+			}
+		}
+	}
+
+	std::string pak_name;
+	const char *copyright = ground_desc_t::outside != NULL ? ground_desc_t::outside->get_copyright() : NULL;
+	if (copyright != NULL && STRICMP("none", copyright) != 0) {
+		pak_name = copyright;
+	}
+	else {
+		pak_name = env_t::objfilename;
+		if (!pak_name.empty()) {
+			pak_name.erase(pak_name.length() - 1);
+		}
+	}
+
+	const int language_id = settings.get_name_language_id();
+	const char *name_language = translator::get_langs()[language_id].iso;
+
+	std::ostringstream body;
+	body << "{\"api_version\":\"v1\",\"world_epoch\":" << epoch
+		<< ",\"sync_step\":" << world->get_sync_steps()
+		<< ",\"snapshot_sequence\":" << sequence
+		<< ",\"generated_at_ms\":" << generated_at
+		<< ",\"time\":";
+	append_time_json(body, world);
+	body << ",\"size\":{\"width\":" << world->get_size().x
+		<< ",\"height\":" << world->get_size().y << '}'
+		<< ",\"settings\":{\"freeplay\":" << (settings.is_freeplay() ? "true" : "false")
+		<< ",\"timeline_enabled\":" << (world->get_timeline_year_month() != 0 ? "true" : "false")
+		<< ",\"bits_per_month\":" << settings.get_bits_per_month()
+		<< ",\"name_language\":\"" << json_escape(name_language) << "\"}"
+		<< ",\"counts\":{\"towns\":" << world->get_cities().get_count()
+		<< ",\"citizens\":" << citizens
+		<< ",\"factories\":" << world->get_fab_list().get_count()
+		<< ",\"tourist_attractions\":" << world->get_attractions().get_count()
+		<< ",\"convoys\":" << world->convoys().get_count()
+		<< ",\"stops\":" << haltestelle_t::get_alle_haltestellen().get_count()
+		<< ",\"companies\":" << company_count
+		<< ",\"locked_companies\":" << locked_company_count
+		<< ",\"playing_clients\":" << socket_list_t::get_playing_clients() << '}'
+		<< ",\"compatibility\":{\"engine_revision\":"
+		<< OTRP_VERSION_MAJOR * 10000 + OTRP_VERSION_MINOR * 100 + OTRP_VERSION_PATCH
+		<< ",\"otrp_version\":\"" QUOTEME(OTRP_VERSION_MAJOR) OTRP_VERSION_MINOR_STRING "\""
+		<< ",\"pak_name\":\"" << json_escape(pak_name.c_str()) << '"'
+		<< ",\"pakset_checksum\":\"" << pakset_info_t::get_pakset_checksum().get_str() << "\"}"
+		<< ",\"server\":{\"network_mode\":" << (env_t::networkmode ? "true" : "false")
+		<< ",\"server_mode\":" << (env_t::server ? "true" : "false")
+		<< ",\"name\":\"" << json_escape(env_t::server_name.c_str()) << '"'
+		<< ",\"comments\":\"" << json_escape(env_t::server_comments.c_str()) << '"'
+		<< ",\"pak_url\":\"" << json_escape(env_t::server_pakurl.c_str()) << '"'
+		<< ",\"info_url\":\"" << json_escape(env_t::server_infurl.c_str()) << "\"}}\n";
+	return body.str();
 }
 
 static std::string make_convoys_json(karte_t *world, const waytype_filter_t &filter,
@@ -823,7 +952,7 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 		const std::string body =
 			"{\"name\":\"Simutrans Observer REST API\",\"api_version\":\"v1\","
 			"\"openapi\":{\"yaml\":\"/api/v1/openapi.yaml\",\"json\":\"/api/v1/openapi.json\"},"
-			"\"endpoints\":{\"companies\":\"/api/v1/companies\",\"lines\":\"/api/v1/lines\","
+			"\"endpoints\":{\"time\":\"/api/v1/time\",\"map_info\":\"/api/v1/map-info\",\"companies\":\"/api/v1/companies\",\"lines\":\"/api/v1/lines\","
 			"\"convoys\":\"/api/v1/convoys\",\"convoy_positions\":\"/api/v1/convoy-positions\"}}\n";
 		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body);
 		return;
@@ -842,11 +971,13 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 		return;
 	}
 
+	const bool is_time = path == "/api/v1/time";
+	const bool is_map_info = path == "/api/v1/map-info";
 	const bool is_companies = path == "/api/v1/companies";
 	const bool is_lines = path == "/api/v1/lines";
 	const bool is_convoys = path == "/api/v1/convoys";
 	const bool is_positions = path == "/api/v1/convoy-positions";
-	if (!is_companies && !is_lines && !is_convoys && !is_positions) {
+	if (!is_time && !is_map_info && !is_companies && !is_lines && !is_convoys && !is_positions) {
 		connection->send_buf = make_error_response(404, "Not Found", "unknown API path");
 		return;
 	}
@@ -854,7 +985,7 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 	waytype_filter_t waytype_filter;
 	line_filter_t line_filter;
 	std::string query_error;
-	if (is_companies && !query.empty()) {
+	if ((is_time || is_map_info || is_companies) && !query.empty()) {
 		connection->send_buf = make_error_response(400, "Bad Request", "query parameters are not supported");
 		return;
 	}
@@ -876,7 +1007,15 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 	const uint32 sync_step = world->get_sync_steps();
 	const std::string headers = metadata_headers(world_epoch, sequence, sync_step, generated_at);
 
-	if (is_companies) {
+	if (is_time) {
+		const std::string body = make_time_json(world, world_epoch, sequence, generated_at);
+		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
+	}
+	else if (is_map_info) {
+		const std::string body = make_map_info_json(world, world_epoch, sequence, generated_at);
+		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
+	}
+	else if (is_companies) {
 		const std::string body = make_companies_json(world, world_epoch, sequence, generated_at);
 		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
 	}
