@@ -73,6 +73,7 @@
 #include "network/network_socket_list.h"
 #include "network/network_cmd_ingame.h"
 #include "network/mcp_server.h"
+#include "network/rest_api_server.h"
 
 #include "dataobj/height_map_loader.h"
 #include "dataobj/ribi.h"
@@ -1332,6 +1333,7 @@ DBG_DEBUG("karte_t::init()","built timeline");
 		display_show_pointer(true);
 	}
 	mute_sound(false);
+	rest_api_server_t::notify_world_changed();
 }
 
 
@@ -5716,6 +5718,7 @@ DBG_MESSAGE("karte_t::load()", "%d factories loaded", fab_list.get_count());
 
 	// loading finished, reset savegame version to current
 	load_version = loadsave_t::int_version( env_t::savegame_version_str, NULL ).version;
+	rest_api_server_t::notify_world_changed();
 
 	dbg->warning("karte_t::load()","loaded savegame from %i/%i, next month=%i, ticks=%i (per month=1<<%i)",last_month,last_year,next_month_ticks,ticks,karte_t::ticks_per_world_month_shift);
 }
@@ -7662,6 +7665,7 @@ bool karte_t::interactive(uint32 quit_month)
 
 		// poll MCP server (accept connections, read/dispatch/write) – main thread, no locks needed
 		mcp_server_t::step(this);
+		rest_api_server_t::step(this);
 
 		if(  env_t::networkmode  ) {
 			process_network_commands(&ms_difference);

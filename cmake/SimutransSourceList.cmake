@@ -206,6 +206,8 @@ target_sources(simutrans PRIVATE
 		io/rdwr/rdwr_stream.cc
 		io/rdwr/zlib_file_rdwr_stream.cc
 		network/checksum.cc
+		network/mcp_server.cc
+		network/mcp_tools.cc
 		network/memory_rw.cc
 		network/network.cc
 		network/network_address.cc
@@ -217,6 +219,7 @@ target_sources(simutrans PRIVATE
 		network/network_packet.cc
 		network/network_socket_list.cc
 		network/pakset_info.cc
+		network/rest_api_server.cc
 		obj/baum.cc
 		obj/bruecke.cc
 		obj/crossing.cc

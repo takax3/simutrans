@@ -248,6 +248,8 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)io\rdwr\zlib_file_rdwr_stream.cc" />
     <ClCompile Include="$(MSBuildThisFileDirectory)io\rdwr\zstd_file_rdwr_stream.cc" />
     <ClCompile Include="$(MSBuildThisFileDirectory)network\checksum.cc" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)network\mcp_server.cc" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)network\mcp_tools.cc" />
     <ClCompile Include="$(MSBuildThisFileDirectory)network\memory_rw.cc" />
     <ClCompile Include="$(MSBuildThisFileDirectory)network\network.cc" />
     <ClCompile Include="$(MSBuildThisFileDirectory)network\network_address.cc" />
@@ -259,6 +261,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)network\network_packet.cc" />
     <ClCompile Include="$(MSBuildThisFileDirectory)network\network_socket_list.cc" />
     <ClCompile Include="$(MSBuildThisFileDirectory)network\pakset_info.cc" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)network\rest_api_server.cc" />
     <ClCompile Include="$(MSBuildThisFileDirectory)obj\baum.cc" />
     <ClCompile Include="$(MSBuildThisFileDirectory)obj\bruecke.cc" />
     <ClCompile Include="$(MSBuildThisFileDirectory)obj\crossing.cc" />
@@ -612,6 +615,8 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)io\rdwr\zlib_file_rdwr_stream.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)io\rdwr\zstd_file_rdwr_stream.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)network\checksum.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)network\mcp_server.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)network\mcp_tools.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)network\memory_rw.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)network\network.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)network\network_address.h" />
@@ -623,6 +628,8 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)network\network_packet.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)network\network_socket_list.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)network\pakset_info.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)network\rest_api_server.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)network\rest_api_spec_generated.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)obj\baum.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)obj\bruecke.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)obj\crossing.h" />

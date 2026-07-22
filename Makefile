@@ -512,6 +512,7 @@ SOURCES += network/network_packet.cc
 SOURCES += network/network_socket_list.cc
 SOURCES += network/mcp_server.cc
 SOURCES += network/mcp_tools.cc
+SOURCES += network/rest_api_server.cc
 SOURCES += network/pakset_info.cc
 SOURCES += obj/baum.cc
 SOURCES += obj/bruecke.cc

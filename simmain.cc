@@ -79,6 +79,7 @@
 #include "network/pakset_info.h"
 #include "network/otrp_log_sender.h"
 #include "network/mcp_server.h"
+#include "network/rest_api_server.h"
 
 #include "descriptor/reader/obj_reader.h"
 #include "descriptor/sound_desc.h"
@@ -398,6 +399,7 @@ void print_help()
 		" -scenario NAME      Load scenario NAME\n"
 		" -screensize WxH     set screensize to width W and height H\n"
 		" -mcp-port PORT      start MCP (Model Context Protocol) server on PORT\n"
+		" -rest-api-port PORT start read-only REST API on loopback PORT (default 13355)\n"
 		" -server [PORT]      starts program as server (for network game)\n"
 		"                     without port specified uses 13353\n"
 		" -announce           Enable server announcements\n"
@@ -830,6 +832,14 @@ int simu_main(int argc, char** argv)
 		uint16 mcp_port = p ? (uint16)atoi(p) : 13354;
 		if (mcp_port == 0) { mcp_port = 13354; }
 		mcp_server_t::init(mcp_port);
+	}
+
+	// Start the read-only REST API if requested.  It is always bound to loopback.
+	if (args.has_arg("-rest-api-port")) {
+		const char *p = args.gimme_arg("-rest-api-port", 1);
+		uint16 rest_api_port = p ? (uint16)atoi(p) : 13355;
+		if (rest_api_port == 0) { rest_api_port = 13355; }
+		rest_api_server_t::init(rest_api_port);
 	}
 
 	DBG_MESSAGE("simu_main()", "Version:    " VERSION_NUMBER "  Date: " VERSION_DATE);
@@ -1784,6 +1794,7 @@ int simu_main(int argc, char** argv)
 	delete eventmanager;
 	eventmanager = NULL;
 
+	rest_api_server_t::shutdown();
 	mcp_server_t::shutdown();
 	remove_port_forwarding( env_t::server );
 	network_core_shutdown();
