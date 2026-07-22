@@ -14,7 +14,7 @@ info:
     clients from any origin may read the API through CORS. Credentials are not
     supported.
 
-    Company, line, and convoy IDs are references scoped to one `world_epoch`.
+    Company, stop, line, and convoy IDs are references scoped to one `world_epoch`.
     Clients must refresh their lists after the epoch changes.
 servers:
   - url: http://127.0.0.1:{port}
@@ -38,6 +38,8 @@ tags:
     description: Companies in the currently loaded map.
   - name: Lines
     description: Transport lines in the currently loaded map.
+  - name: Stops
+    description: Stops and passenger waiting information in the currently loaded map.
   - name: Convoys
     description: Information about convoys in the currently loaded map.
 paths:
@@ -246,6 +248,86 @@ paths:
           $ref: "#/components/responses/MethodNotAllowed"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/lines/{line_id}/schedule:
+    options:
+      operationId: preflightLineSchedule
+      summary: CORS preflight
+      responses:
+        "204": {$ref: "#/components/responses/CorsPreflight"}
+    get:
+      tags: [Lines]
+      operationId: getLineSchedule
+      summary: Get a line schedule
+      parameters:
+        - $ref: "#/components/parameters/LineId"
+      responses:
+        "200":
+          description: Ordered line schedule snapshot. Waypoints have a null stop ID.
+          headers:
+            X-Simutrans-World-Epoch: {$ref: "#/components/headers/WorldEpoch"}
+            X-Simutrans-Snapshot-Sequence: {$ref: "#/components/headers/SnapshotSequence"}
+            X-Simutrans-Sync-Step: {$ref: "#/components/headers/SyncStep"}
+            X-Simutrans-Generated-At-Ms: {$ref: "#/components/headers/GeneratedAtMs"}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/LineSchedule"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "405": {$ref: "#/components/responses/MethodNotAllowed"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+  /api/v1/stops:
+    options:
+      operationId: preflightStops
+      summary: CORS preflight
+      responses:
+        "204": {$ref: "#/components/responses/CorsPreflight"}
+    get:
+      tags: [Stops]
+      operationId: listStops
+      summary: List stops and passenger statistics
+      parameters:
+        - $ref: "#/components/parameters/CompanyId"
+      responses:
+        "200":
+          description: Stop snapshot in ascending stop ID order.
+          headers:
+            X-Simutrans-World-Epoch: {$ref: "#/components/headers/WorldEpoch"}
+            X-Simutrans-Snapshot-Sequence: {$ref: "#/components/headers/SnapshotSequence"}
+            X-Simutrans-Sync-Step: {$ref: "#/components/headers/SyncStep"}
+            X-Simutrans-Generated-At-Ms: {$ref: "#/components/headers/GeneratedAtMs"}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/StopList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "405": {$ref: "#/components/responses/MethodNotAllowed"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+  /api/v1/stops/{stop_id}/passenger-waiting:
+    options:
+      operationId: preflightPassengerWaiting
+      summary: CORS preflight
+      responses:
+        "204": {$ref: "#/components/responses/CorsPreflight"}
+    get:
+      tags: [Stops]
+      operationId: getPassengerWaiting
+      summary: Get passenger waiting totals by next stop
+      parameters:
+        - $ref: "#/components/parameters/StopId"
+      responses:
+        "200":
+          description: Passenger waiting snapshot with nonzero destinations in descending amount order.
+          headers:
+            X-Simutrans-World-Epoch: {$ref: "#/components/headers/WorldEpoch"}
+            X-Simutrans-Snapshot-Sequence: {$ref: "#/components/headers/SnapshotSequence"}
+            X-Simutrans-Sync-Step: {$ref: "#/components/headers/SyncStep"}
+            X-Simutrans-Generated-At-Ms: {$ref: "#/components/headers/GeneratedAtMs"}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PassengerWaiting"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "405": {$ref: "#/components/responses/MethodNotAllowed"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
   /api/v1/convoys:
     options:
       operationId: preflightConvoys
@@ -332,11 +414,21 @@ components:
       name: company_id
       in: query
       required: false
-      description: Filters lines by company ID. A valid but unused ID returns an empty list.
+      description: Filters resources by company ID. A valid but unused ID returns an empty list.
       schema:
         type: integer
         minimum: 0
         maximum: 15
+    LineId:
+      name: line_id
+      in: path
+      required: true
+      schema: {type: integer, format: int64, minimum: 1}
+    StopId:
+      name: stop_id
+      in: path
+      required: true
+      schema: {type: integer, format: int64, minimum: 1}
     Waytype:
       name: waytype
       in: query
@@ -424,6 +516,11 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    NotFound:
+      description: The requested resource ID is not present in the current world epoch.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
   schemas:
     ApiIndex:
       type: object
@@ -448,7 +545,7 @@ components:
           additionalProperties: false
         endpoints:
           type: object
-          required: [time, map_info, companies, lines, convoys, convoy_positions]
+          required: [time, map_info, companies, stops, lines, convoys, convoy_positions]
           properties:
             time:
               type: string
@@ -459,6 +556,9 @@ components:
             companies:
               type: string
               const: /api/v1/companies
+            stops:
+              type: string
+              const: /api/v1/stops
             lines:
               type: string
               const: /api/v1/lines
@@ -639,6 +739,7 @@ components:
       required:
         - id
         - name
+        - current_cash
         - public_service
         - ai_type
         - ai_active
@@ -652,6 +753,10 @@ components:
           maximum: 15
         name:
           type: string
+        current_cash:
+          type: integer
+          format: int64
+          description: Internal account balance in hundredths of a Simutrans credit.
         public_service:
           type: boolean
         ai_type:
@@ -772,6 +877,8 @@ components:
         - waytype
         - vehicle_count
         - length_carunits
+        - waiting
+        - in_depot
       properties:
         id:
           type: integer
@@ -793,6 +900,99 @@ components:
         length_carunits:
           type: integer
           minimum: 0
+        waiting:
+          type: boolean
+          description: Whether the convoy is in one of the clearance or can-start waiting states.
+        in_depot:
+          type: boolean
+      additionalProperties: false
+    Position:
+      type: object
+      required: [x, y, z]
+      properties:
+        x: {type: integer}
+        y: {type: integer}
+        z: {type: integer}
+      additionalProperties: false
+    StopList:
+      type: object
+      required: [api_version, world_epoch, sync_step, snapshot_sequence, generated_at_ms, stops]
+      properties:
+        api_version: {type: string, const: v1}
+        world_epoch: {type: integer, format: int64, minimum: 0}
+        sync_step: {type: integer, format: int64, minimum: 0}
+        snapshot_sequence: {type: integer, format: int64, minimum: 0}
+        generated_at_ms: {type: integer, format: int64, minimum: 0}
+        stops:
+          type: array
+          items: {$ref: "#/components/schemas/Stop"}
+      additionalProperties: false
+    Stop:
+      type: object
+      required: [id, name, company_ids, position, passenger_waiting, passenger_capacity, arrived_last_month, departed_last_month]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+        name: {type: string}
+        company_ids:
+          type: array
+          uniqueItems: true
+          items: {type: integer, minimum: 0, maximum: 15}
+        position: {$ref: "#/components/schemas/Position"}
+        passenger_waiting: {type: integer, format: int64, minimum: 0}
+        passenger_capacity: {type: integer, format: int64, minimum: 0}
+        arrived_last_month:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Total goods and passengers that arrived during the previous month.
+        departed_last_month:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Total goods and passengers that departed during the previous month.
+      additionalProperties: false
+    PassengerWaiting:
+      type: object
+      required: [api_version, world_epoch, sync_step, snapshot_sequence, generated_at_ms, stop_id, passenger_waiting, passenger_capacity, destinations]
+      properties:
+        api_version: {type: string, const: v1}
+        world_epoch: {type: integer, format: int64, minimum: 0}
+        sync_step: {type: integer, format: int64, minimum: 0}
+        snapshot_sequence: {type: integer, format: int64, minimum: 0}
+        generated_at_ms: {type: integer, format: int64, minimum: 0}
+        stop_id: {type: integer, format: int64, minimum: 1}
+        passenger_waiting: {type: integer, format: int64, minimum: 0}
+        passenger_capacity: {type: integer, format: int64, minimum: 0}
+        destinations:
+          type: array
+          items:
+            type: object
+            required: [stop_id, waiting]
+            properties:
+              stop_id: {type: integer, format: int64, minimum: 1}
+              waiting: {type: integer, format: int64, minimum: 1}
+            additionalProperties: false
+      additionalProperties: false
+    LineSchedule:
+      type: object
+      required: [api_version, world_epoch, sync_step, snapshot_sequence, generated_at_ms, line_id, entries]
+      properties:
+        api_version: {type: string, const: v1}
+        world_epoch: {type: integer, format: int64, minimum: 0}
+        sync_step: {type: integer, format: int64, minimum: 0}
+        snapshot_sequence: {type: integer, format: int64, minimum: 0}
+        generated_at_ms: {type: integer, format: int64, minimum: 0}
+        line_id: {type: integer, format: int64, minimum: 1}
+        entries:
+          type: array
+          items:
+            type: object
+            required: [index, position, stop_id]
+            properties:
+              index: {type: integer, minimum: 0}
+              position: {$ref: "#/components/schemas/Position"}
+              stop_id: {type: [integer, "null"], format: int64, minimum: 1}
+            additionalProperties: false
       additionalProperties: false
     WaytypeName:
       type: string
@@ -814,7 +1014,7 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
   "info": {
     "title": "Simutrans Observer REST API",
     "version": "1.0.0",
-    "description": "Read-only API for local software that observes the currently loaded map.\nThe server listens only on the IPv4 and IPv6 loopback interfaces. Browser\nclients from any origin may read the API through CORS. Credentials are not\nsupported.\n\nCompany, line, and convoy IDs are references scoped to one `world_epoch`.\nClients must refresh their lists after the epoch changes.\n"
+    "description": "Read-only API for local software that observes the currently loaded map.\nThe server listens only on the IPv4 and IPv6 loopback interfaces. Browser\nclients from any origin may read the API through CORS. Credentials are not\nsupported.\n\nCompany, stop, line, and convoy IDs are references scoped to one `world_epoch`.\nClients must refresh their lists after the epoch changes.\n"
   },
   "servers": [
     {
@@ -854,6 +1054,10 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
     {
       "name": "Lines",
       "description": "Transport lines in the currently loaded map."
+    },
+    {
+      "name": "Stops",
+      "description": "Stops and passenger waiting information in the currently loaded map."
     },
     {
       "name": "Convoys",
@@ -1187,6 +1391,186 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
         }
       }
     },
+    "/api/v1/lines/{line_id}/schedule": {
+      "options": {
+        "operationId": "preflightLineSchedule",
+        "summary": "CORS preflight",
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/CorsPreflight"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Lines"
+        ],
+        "operationId": "getLineSchedule",
+        "summary": "Get a line schedule",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/LineId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ordered line schedule snapshot. Waypoints have a null stop ID.",
+            "headers": {
+              "X-Simutrans-World-Epoch": {
+                "$ref": "#/components/headers/WorldEpoch"
+              },
+              "X-Simutrans-Snapshot-Sequence": {
+                "$ref": "#/components/headers/SnapshotSequence"
+              },
+              "X-Simutrans-Sync-Step": {
+                "$ref": "#/components/headers/SyncStep"
+              },
+              "X-Simutrans-Generated-At-Ms": {
+                "$ref": "#/components/headers/GeneratedAtMs"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineSchedule"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/stops": {
+      "options": {
+        "operationId": "preflightStops",
+        "summary": "CORS preflight",
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/CorsPreflight"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Stops"
+        ],
+        "operationId": "listStops",
+        "summary": "List stops and passenger statistics",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CompanyId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stop snapshot in ascending stop ID order.",
+            "headers": {
+              "X-Simutrans-World-Epoch": {
+                "$ref": "#/components/headers/WorldEpoch"
+              },
+              "X-Simutrans-Snapshot-Sequence": {
+                "$ref": "#/components/headers/SnapshotSequence"
+              },
+              "X-Simutrans-Sync-Step": {
+                "$ref": "#/components/headers/SyncStep"
+              },
+              "X-Simutrans-Generated-At-Ms": {
+                "$ref": "#/components/headers/GeneratedAtMs"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/stops/{stop_id}/passenger-waiting": {
+      "options": {
+        "operationId": "preflightPassengerWaiting",
+        "summary": "CORS preflight",
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/CorsPreflight"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Stops"
+        ],
+        "operationId": "getPassengerWaiting",
+        "summary": "Get passenger waiting totals by next stop",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/StopId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Passenger waiting snapshot with nonzero destinations in descending amount order.",
+            "headers": {
+              "X-Simutrans-World-Epoch": {
+                "$ref": "#/components/headers/WorldEpoch"
+              },
+              "X-Simutrans-Snapshot-Sequence": {
+                "$ref": "#/components/headers/SnapshotSequence"
+              },
+              "X-Simutrans-Sync-Step": {
+                "$ref": "#/components/headers/SyncStep"
+              },
+              "X-Simutrans-Generated-At-Ms": {
+                "$ref": "#/components/headers/GeneratedAtMs"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PassengerWaiting"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
     "/api/v1/convoys": {
       "options": {
         "operationId": "preflightConvoys",
@@ -1313,11 +1697,31 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
         "name": "company_id",
         "in": "query",
         "required": false,
-        "description": "Filters lines by company ID. A valid but unused ID returns an empty list.",
+        "description": "Filters resources by company ID. A valid but unused ID returns an empty list.",
         "schema": {
           "type": "integer",
           "minimum": 0,
           "maximum": 15
+        }
+      },
+      "LineId": {
+        "name": "line_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        }
+      },
+      "StopId": {
+        "name": "stop_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
         }
       },
       "Waytype": {
@@ -1441,6 +1845,16 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
             }
           }
         }
+      },
+      "NotFound": {
+        "description": "The requested resource ID is not present in the current world epoch.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       }
     },
     "schemas": {
@@ -1485,6 +1899,7 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
               "time",
               "map_info",
               "companies",
+              "stops",
               "lines",
               "convoys",
               "convoy_positions"
@@ -1501,6 +1916,10 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
               "companies": {
                 "type": "string",
                 "const": "/api/v1/companies"
+              },
+              "stops": {
+                "type": "string",
+                "const": "/api/v1/stops"
               },
               "lines": {
                 "type": "string",
@@ -1901,6 +2320,7 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
         "required": [
           "id",
           "name",
+          "current_cash",
           "public_service",
           "ai_type",
           "ai_active",
@@ -1916,6 +2336,11 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
           },
           "name": {
             "type": "string"
+          },
+          "current_cash": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Internal account balance in hundredths of a Simutrans credit."
           },
           "public_service": {
             "type": "boolean"
@@ -2096,7 +2521,9 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
           "line_id",
           "waytype",
           "vehicle_count",
-          "length_carunits"
+          "length_carunits",
+          "waiting",
+          "in_depot"
         ],
         "properties": {
           "id": {
@@ -2131,6 +2558,287 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
           "length_carunits": {
             "type": "integer",
             "minimum": 0
+          },
+          "waiting": {
+            "type": "boolean",
+            "description": "Whether the convoy is in one of the clearance or can-start waiting states."
+          },
+          "in_depot": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Position": {
+        "type": "object",
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "z": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StopList": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "world_epoch",
+          "sync_step",
+          "snapshot_sequence",
+          "generated_at_ms",
+          "stops"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "string",
+            "const": "v1"
+          },
+          "world_epoch": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sync_step": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "snapshot_sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "generated_at_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stop"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "Stop": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "company_ids",
+          "position",
+          "passenger_waiting",
+          "passenger_capacity",
+          "arrived_last_month",
+          "departed_last_month"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "company_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 15
+            }
+          },
+          "position": {
+            "$ref": "#/components/schemas/Position"
+          },
+          "passenger_waiting": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "passenger_capacity": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "arrived_last_month": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Total goods and passengers that arrived during the previous month."
+          },
+          "departed_last_month": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Total goods and passengers that departed during the previous month."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PassengerWaiting": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "world_epoch",
+          "sync_step",
+          "snapshot_sequence",
+          "generated_at_ms",
+          "stop_id",
+          "passenger_waiting",
+          "passenger_capacity",
+          "destinations"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "string",
+            "const": "v1"
+          },
+          "world_epoch": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sync_step": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "snapshot_sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "generated_at_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "passenger_waiting": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "passenger_capacity": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "destinations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "stop_id",
+                "waiting"
+              ],
+              "properties": {
+                "stop_id": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 1
+                },
+                "waiting": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "LineSchedule": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "world_epoch",
+          "sync_step",
+          "snapshot_sequence",
+          "generated_at_ms",
+          "line_id",
+          "entries"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "string",
+            "const": "v1"
+          },
+          "world_epoch": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sync_step": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "snapshot_sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "generated_at_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "line_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "index",
+                "position",
+                "stop_id"
+              ],
+              "properties": {
+                "index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "position": {
+                  "$ref": "#/components/schemas/Position"
+                },
+                "stop_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false

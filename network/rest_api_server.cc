@@ -21,11 +21,13 @@
 #include "../dataobj/environment.h"
 #include "../dataobj/schedule.h"
 #include "../dataobj/translator.h"
+#include "../bauer/goods_manager.h"
 #include "../descriptor/ground_desc.h"
 #include "../linehandle_t.h"
 #include "../network/network_socket_list.h"
 #include "../network/pakset_info.h"
 #include "../player/simplay.h"
+#include "../player/finance.h"
 #include "../simcity.h"
 #include "../simconvoi.h"
 #include "../simconst.h"
@@ -252,6 +254,43 @@ static bool parse_company_id(const std::string &value, uint8 &company_id)
 	return true;
 }
 
+static bool parse_resource_id(const std::string &value, uint32 &id)
+{
+	if (value.empty()) {
+		return false;
+	}
+	uint64 parsed = 0;
+	for (size_t i = 0; i < value.size(); ++i) {
+		if (value[i] < '0' || value[i] > '9') {
+			return false;
+		}
+		parsed = parsed * 10 + static_cast<unsigned int>(value[i] - '0');
+		if (parsed > 0xFFFFFFFFu) {
+			return false;
+		}
+	}
+	id = static_cast<uint32>(parsed);
+	return id != 0;
+}
+
+static bool parse_stop_query(const std::string &query, bool &has_company_id, uint8 &company_id, std::string &error)
+{
+	if (query.empty()) {
+		return true;
+	}
+	const size_t equals = query.find('=');
+	if (equals == std::string::npos || query.find('&') != std::string::npos || query.substr(0, equals) != "company_id") {
+		error = "unknown or malformed query parameter";
+		return false;
+	}
+	has_company_id = true;
+	if (!parse_company_id(query.substr(equals + 1), company_id)) {
+		error = "invalid company_id";
+		return false;
+	}
+	return true;
+}
+
 static bool parse_line_query(const std::string &query, line_filter_t &filter, std::string &error)
 {
 	if (query.empty()) {
@@ -342,6 +381,12 @@ static const char *convoy_state_name(int state)
 	}
 }
 
+static bool convoy_is_waiting(const convoi_t *convoy)
+{
+	const int state = convoy->get_state();
+	return state >= convoi_t::WAITING_FOR_CLEARANCE && state <= convoi_t::CAN_START_TWO_MONTHS && state != convoi_t::SELF_DESTRUCT;
+}
+
 static std::string metadata_headers(uint64 epoch, uint64 sequence, uint32 sync_step, uint32 generated_at)
 {
 	std::ostringstream headers;
@@ -384,15 +429,29 @@ static std::string make_error_response(int status, const char *reason, const std
 
 static bool is_known_path(const std::string &path)
 {
+	const std::string stop_prefix = "/api/v1/stops/";
+	const std::string waiting_suffix = "/passenger-waiting";
+	const std::string line_prefix = "/api/v1/lines/";
+	const std::string schedule_suffix = "/schedule";
+	uint32 resource_id = 0;
+	const bool is_waiting_path = path.compare(0, stop_prefix.size(), stop_prefix) == 0 &&
+		path.size() > stop_prefix.size() + waiting_suffix.size() &&
+		path.substr(path.size() - waiting_suffix.size()) == waiting_suffix &&
+		parse_resource_id(path.substr(stop_prefix.size(), path.size() - stop_prefix.size() - waiting_suffix.size()), resource_id);
+	const bool is_schedule_path = path.compare(0, line_prefix.size(), line_prefix) == 0 &&
+		path.size() > line_prefix.size() + schedule_suffix.size() &&
+		path.substr(path.size() - schedule_suffix.size()) == schedule_suffix &&
+		parse_resource_id(path.substr(line_prefix.size(), path.size() - line_prefix.size() - schedule_suffix.size()), resource_id);
 	return path == "/" ||
 		path == "/api/v1/openapi.yaml" ||
 		path == "/api/v1/openapi.json" ||
 		path == "/api/v1/time" ||
 		path == "/api/v1/map-info" ||
 		path == "/api/v1/companies" ||
+		path == "/api/v1/stops" ||
 		path == "/api/v1/lines" ||
 		path == "/api/v1/convoys" ||
-		path == "/api/v1/convoy-positions";
+		path == "/api/v1/convoy-positions" || is_waiting_path || is_schedule_path;
 }
 
 static void append_time_json(std::ostringstream &body, karte_t *world)
@@ -563,6 +622,8 @@ static std::string make_convoys_json(karte_t *world, const waytype_filter_t &fil
 		body << ",\"waytype\":\"" << waytype_name(waytype) << '"'
 			<< ",\"vehicle_count\":" << static_cast<unsigned int>(convoy->get_vehicle_count())
 			<< ",\"length_carunits\":" << convoy->get_length()
+			<< ",\"waiting\":" << (convoy_is_waiting(convoy) ? "true" : "false")
+			<< ",\"in_depot\":" << (convoy->in_depot() ? "true" : "false")
 			<< '}';
 	}
 
@@ -591,6 +652,7 @@ static std::string make_companies_json(karte_t *world, uint64 epoch, uint64 sequ
 		first = false;
 		body << "{\"id\":" << static_cast<unsigned int>(company->get_player_nr())
 			<< ",\"name\":\"" << json_escape(company->get_name()) << '"'
+			<< ",\"current_cash\":" << company->get_finance()->get_account_balance()
 			<< ",\"public_service\":" << (company->is_public_service() ? "true" : "false")
 			<< ",\"ai_type\":\"" << ai_type_name(company->get_ai_id()) << '"'
 			<< ",\"ai_active\":" << (company->is_active() ? "true" : "false")
@@ -598,6 +660,138 @@ static std::string make_companies_json(karte_t *world, uint64 epoch, uint64 sequ
 			<< ",\"primary_color_index\":" << static_cast<unsigned int>(company->get_player_color1())
 			<< ",\"secondary_color_index\":" << static_cast<unsigned int>(company->get_player_color2())
 			<< '}';
+	}
+	body << "]}\n";
+	return body.str();
+}
+
+static void collect_stop_company_ids(const haltestelle_t *stop, bool company_ids[MAX_PLAYER_COUNT])
+{
+	for (uint8 i = 0; i < MAX_PLAYER_COUNT; ++i) {
+		company_ids[i] = false;
+	}
+	if (const player_t *owner = stop->get_owner()) {
+		company_ids[owner->get_player_nr()] = true;
+	}
+	FOR(vector_tpl<linehandle_t>, line, stop->registered_lines) {
+		if (line.is_bound() && line->get_owner() != NULL) {
+			company_ids[line->get_owner()->get_player_nr()] = true;
+		}
+	}
+	FOR(vector_tpl<convoihandle_t>, convoy, stop->registered_convoys) {
+		if (convoy.is_bound() && convoy->get_owner() != NULL) {
+			company_ids[convoy->get_owner()->get_player_nr()] = true;
+		}
+	}
+}
+
+struct halt_id_less_t {
+	bool operator()(const halthandle_t &a, const halthandle_t &b) const { return a.get_id() < b.get_id(); }
+};
+
+static std::string make_stops_json(karte_t *world, bool has_company_id, uint8 company_id,
+	uint64 epoch, uint64 sequence, uint32 generated_at)
+{
+	std::vector<halthandle_t> stops;
+	FOR(vector_tpl<halthandle_t>, stop, haltestelle_t::get_alle_haltestellen()) {
+		if (!stop.is_bound()) continue;
+		bool company_ids[MAX_PLAYER_COUNT];
+		collect_stop_company_ids(stop.get_rep(), company_ids);
+		if (!has_company_id || company_ids[company_id]) stops.push_back(stop);
+	}
+	std::sort(stops.begin(), stops.end(), halt_id_less_t());
+
+	std::ostringstream body;
+	body << "{\"api_version\":\"v1\",\"world_epoch\":" << epoch
+		<< ",\"sync_step\":" << world->get_sync_steps() << ",\"snapshot_sequence\":" << sequence
+		<< ",\"generated_at_ms\":" << generated_at << ",\"stops\":[";
+	for (size_t i = 0; i < stops.size(); ++i) {
+		const haltestelle_t *stop = stops[i].get_rep();
+		const koord3d pos = stop->get_basis_pos3d();
+		bool company_ids[MAX_PLAYER_COUNT];
+		collect_stop_company_ids(stop, company_ids);
+		if (i) body << ',';
+		body << "{\"id\":" << stops[i].get_id() << ",\"name\":\"" << json_escape(stop->get_name())
+			<< "\",\"company_ids\":[";
+		bool first_company = true;
+		for (uint8 c = 0; c < MAX_PLAYER_COUNT; ++c) if (company_ids[c]) {
+			if (!first_company) body << ',';
+			first_company = false; body << static_cast<unsigned int>(c);
+		}
+		body << "],\"position\":{\"x\":" << pos.x << ",\"y\":" << pos.y << ",\"z\":" << static_cast<int>(pos.z) << '}'
+			<< ",\"passenger_waiting\":" << stop->get_ware_summe(goods_manager_t::passengers)
+			<< ",\"passenger_capacity\":" << stop->get_capacity(goods_manager_t::INDEX_PAS)
+			<< ",\"arrived_last_month\":" << stop->get_finance_history(1, HALT_ARRIVED)
+			<< ",\"departed_last_month\":" << stop->get_finance_history(1, HALT_DEPARTED) << '}';
+	}
+	body << "]}\n";
+	return body.str();
+}
+
+struct waiting_destination_t { uint32 id; uint32 amount; };
+struct waiting_destination_less_t {
+	bool operator()(const waiting_destination_t &a, const waiting_destination_t &b) const {
+		return a.amount != b.amount ? a.amount > b.amount : a.id < b.id;
+	}
+};
+
+static std::string make_passenger_waiting_json(karte_t *world, const halthandle_t stop,
+	uint64 epoch, uint64 sequence, uint32 generated_at)
+{
+	std::vector<waiting_destination_t> destinations;
+	FOR(vector_tpl<haltestelle_t::connection_t>, connection, stop->get_pax_connections()) {
+		if (!connection.halt.is_bound()) continue;
+		const uint32 amount = stop->get_ware_fuer_zwischenziel(goods_manager_t::passengers, connection.halt);
+		if (amount > 0) destinations.push_back(waiting_destination_t{connection.halt.get_id(), amount});
+	}
+	std::sort(destinations.begin(), destinations.end(), waiting_destination_less_t());
+	std::ostringstream body;
+	body << "{\"api_version\":\"v1\",\"world_epoch\":" << epoch << ",\"sync_step\":" << world->get_sync_steps()
+		<< ",\"snapshot_sequence\":" << sequence << ",\"generated_at_ms\":" << generated_at
+		<< ",\"stop_id\":" << stop.get_id() << ",\"passenger_waiting\":" << stop->get_ware_summe(goods_manager_t::passengers)
+		<< ",\"passenger_capacity\":" << stop->get_capacity(goods_manager_t::INDEX_PAS) << ",\"destinations\":[";
+	for (size_t i = 0; i < destinations.size(); ++i) {
+		if (i) body << ',';
+		body << "{\"stop_id\":" << destinations[i].id << ",\"waiting\":" << destinations[i].amount << '}';
+	}
+	body << "]}\n";
+	return body.str();
+}
+
+static halthandle_t find_stop(uint32 id)
+{
+	FOR(vector_tpl<halthandle_t>, stop, haltestelle_t::get_alle_haltestellen()) {
+		if (stop.is_bound() && stop.get_id() == id) return stop;
+	}
+	return halthandle_t();
+}
+
+static linehandle_t find_line(karte_t *world, uint32 id)
+{
+	for (uint8 i = 0; i < MAX_PLAYER_COUNT; ++i) if (const player_t *company = world->get_player(i)) {
+		FOR(vector_tpl<linehandle_t>, line, company->simlinemgmt.get_line_list()) {
+			if (line.is_bound() && line.get_id() == id) return line;
+		}
+	}
+	return linehandle_t();
+}
+
+static std::string make_line_schedule_json(karte_t *world, const linehandle_t line,
+	uint64 epoch, uint64 sequence, uint32 generated_at)
+{
+	std::ostringstream body;
+	body << "{\"api_version\":\"v1\",\"world_epoch\":" << epoch << ",\"sync_step\":" << world->get_sync_steps()
+		<< ",\"snapshot_sequence\":" << sequence << ",\"generated_at_ms\":" << generated_at
+		<< ",\"line_id\":" << line.get_id() << ",\"entries\":[";
+	const schedule_t *schedule = line->get_schedule();
+	if (schedule != NULL) for (uint8 i = 0; i < schedule->get_count(); ++i) {
+		const schedule_entry_t &entry = schedule->at(i);
+		const halthandle_t stop = haltestelle_t::get_halt(entry.pos, line->get_owner());
+		if (i) body << ',';
+		body << "{\"index\":" << static_cast<unsigned int>(i) << ",\"position\":{\"x\":" << entry.pos.x
+			<< ",\"y\":" << entry.pos.y << ",\"z\":" << static_cast<int>(entry.pos.z) << "},\"stop_id\":";
+		if (stop.is_bound()) body << stop.get_id(); else body << "null";
+		body << '}';
 	}
 	body << "]}\n";
 	return body.str();
@@ -952,7 +1146,7 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 		const std::string body =
 			"{\"name\":\"Simutrans Observer REST API\",\"api_version\":\"v1\","
 			"\"openapi\":{\"yaml\":\"/api/v1/openapi.yaml\",\"json\":\"/api/v1/openapi.json\"},"
-			"\"endpoints\":{\"time\":\"/api/v1/time\",\"map_info\":\"/api/v1/map-info\",\"companies\":\"/api/v1/companies\",\"lines\":\"/api/v1/lines\","
+			"\"endpoints\":{\"time\":\"/api/v1/time\",\"map_info\":\"/api/v1/map-info\",\"companies\":\"/api/v1/companies\",\"stops\":\"/api/v1/stops\",\"lines\":\"/api/v1/lines\","
 			"\"convoys\":\"/api/v1/convoys\",\"convoy_positions\":\"/api/v1/convoy-positions\"}}\n";
 		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body);
 		return;
@@ -974,22 +1168,43 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 	const bool is_time = path == "/api/v1/time";
 	const bool is_map_info = path == "/api/v1/map-info";
 	const bool is_companies = path == "/api/v1/companies";
+	const bool is_stops = path == "/api/v1/stops";
 	const bool is_lines = path == "/api/v1/lines";
 	const bool is_convoys = path == "/api/v1/convoys";
 	const bool is_positions = path == "/api/v1/convoy-positions";
-	if (!is_time && !is_map_info && !is_companies && !is_lines && !is_convoys && !is_positions) {
+	uint32 stop_id = 0;
+	uint32 schedule_line_id = 0;
+	const std::string stop_prefix = "/api/v1/stops/";
+	const std::string waiting_suffix = "/passenger-waiting";
+	const bool is_passenger_waiting = path.compare(0, stop_prefix.size(), stop_prefix) == 0 &&
+		path.size() > stop_prefix.size() + waiting_suffix.size() &&
+		path.substr(path.size() - waiting_suffix.size()) == waiting_suffix &&
+		parse_resource_id(path.substr(stop_prefix.size(), path.size() - stop_prefix.size() - waiting_suffix.size()), stop_id);
+	const std::string line_prefix = "/api/v1/lines/";
+	const std::string schedule_suffix = "/schedule";
+	const bool is_line_schedule = path.compare(0, line_prefix.size(), line_prefix) == 0 &&
+		path.size() > line_prefix.size() + schedule_suffix.size() &&
+		path.substr(path.size() - schedule_suffix.size()) == schedule_suffix &&
+		parse_resource_id(path.substr(line_prefix.size(), path.size() - line_prefix.size() - schedule_suffix.size()), schedule_line_id);
+	if (!is_time && !is_map_info && !is_companies && !is_stops && !is_lines && !is_line_schedule && !is_convoys && !is_positions && !is_passenger_waiting) {
 		connection->send_buf = make_error_response(404, "Not Found", "unknown API path");
 		return;
 	}
 
 	waytype_filter_t waytype_filter;
 	line_filter_t line_filter;
+	bool has_stop_company_id = false;
+	uint8 stop_company_id = 0;
 	std::string query_error;
-	if ((is_time || is_map_info || is_companies) && !query.empty()) {
+	if ((is_time || is_map_info || is_companies || is_passenger_waiting || is_line_schedule) && !query.empty()) {
 		connection->send_buf = make_error_response(400, "Bad Request", "query parameters are not supported");
 		return;
 	}
 	if (is_lines && !parse_line_query(query, line_filter, query_error)) {
+		connection->send_buf = make_error_response(400, "Bad Request", query_error);
+		return;
+	}
+	if (is_stops && !parse_stop_query(query, has_stop_company_id, stop_company_id, query_error)) {
 		connection->send_buf = make_error_response(400, "Bad Request", query_error);
 		return;
 	}
@@ -1019,17 +1234,33 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 		const std::string body = make_companies_json(world, world_epoch, sequence, generated_at);
 		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
 	}
+	else if (is_stops) {
+		const std::string body = make_stops_json(world, has_stop_company_id, stop_company_id, world_epoch, sequence, generated_at);
+		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
+	}
 	else if (is_lines) {
 		const std::string body = make_lines_json(world, line_filter, world_epoch, sequence, generated_at);
 		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
+	}
+	else if (is_line_schedule) {
+		const linehandle_t line = find_line(world, schedule_line_id);
+		if (!line.is_bound()) connection->send_buf = make_error_response(404, "Not Found", "line not found");
+		else connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8",
+			make_line_schedule_json(world, line, world_epoch, sequence, generated_at), headers);
 	}
 	else if (is_convoys) {
 		const std::string body = make_convoys_json(world, waytype_filter, world_epoch, sequence, generated_at);
 		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
 	}
-	else {
+	else if (is_positions) {
 		const std::string body = make_positions_csv(world, waytype_filter);
 		connection->send_buf = make_http_response(200, "OK", "text/csv; charset=utf-8", body, headers);
+	}
+	else {
+		const halthandle_t stop = find_stop(stop_id);
+		if (!stop.is_bound()) connection->send_buf = make_error_response(404, "Not Found", "stop not found");
+		else connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8",
+			make_passenger_waiting_json(world, stop, world_epoch, sequence, generated_at), headers);
 	}
 }
 

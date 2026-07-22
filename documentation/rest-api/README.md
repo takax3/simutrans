@@ -30,3 +30,10 @@ save filename, server email address, and client network addresses.
 `GET /api/v1/time` returns the same clock object without the other map metadata
 for clients that poll time frequently. Map compatibility information also
 contains the human-readable OTRP version.
+
+World-monitor clients can use `companies`, `stops`, `lines`, and `convoys` as
+structured data sources. Company records include the internal account balance;
+stop records expose passenger totals and previous-month throughput. Per-stop
+passenger destinations and ordered line schedules are available from their
+resource-specific paths. All resource IDs must be refreshed when `world_epoch`
+changes.
