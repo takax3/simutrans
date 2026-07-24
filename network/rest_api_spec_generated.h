@@ -40,6 +40,8 @@ tags:
     description: Transport lines in the currently loaded map.
   - name: Stops
     description: Stops and passenger waiting information in the currently loaded map.
+  - name: Ways
+    description: Tile-level transport infrastructure topology in the currently loaded map.
   - name: Convoys
     description: Information about convoys in the currently loaded map.
 paths:
@@ -335,6 +337,81 @@ paths:
         "404": {$ref: "#/components/responses/NotFound"}
         "405": {$ref: "#/components/responses/MethodNotAllowed"}
         "503": {$ref: "#/components/responses/ServiceUnavailable"}
+  /api/v1/ways:
+    options:
+      operationId: preflightWays
+      summary: CORS preflight
+      responses:
+        "204": {$ref: "#/components/responses/CorsPreflight"}
+    get:
+      tags: [Ways]
+      operationId: listWays
+      summary: List way topology tiles
+      description: |
+        Returns explicit way objects in stable y, x, z, and waytype order. If a
+        bounding box is supplied, connections from tiles inside the box may point
+        outside it. Large maps can produce large responses, so display clients
+        should normally request only their visible area.
+      parameters:
+        - $ref: "#/components/parameters/Waytype"
+        - $ref: "#/components/parameters/MinX"
+        - $ref: "#/components/parameters/MinY"
+        - $ref: "#/components/parameters/MaxX"
+        - $ref: "#/components/parameters/MaxY"
+      responses:
+        "200":
+          description: Way topology snapshot.
+          headers:
+            X-Simutrans-World-Epoch: {$ref: "#/components/headers/WorldEpoch"}
+            X-Simutrans-Snapshot-Sequence: {$ref: "#/components/headers/SnapshotSequence"}
+            X-Simutrans-Sync-Step: {$ref: "#/components/headers/SyncStep"}
+            X-Simutrans-Generated-At-Ms: {$ref: "#/components/headers/GeneratedAtMs"}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/WayList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "405": {$ref: "#/components/responses/MethodNotAllowed"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+  /api/v1/way-topology:
+    options:
+      operationId: preflightWayTopology
+      summary: CORS preflight
+      responses:
+        "204": {$ref: "#/components/responses/CorsPreflight"}
+    get:
+      tags: [Ways]
+      operationId: getWayTopology
+      summary: Get compact way topology as CSV
+      description: |
+        Returns one CSV record per matching way in stable y, x, z, and waytype
+        order. Direction bits use north=1, east=2, south=4, and west=8. Each
+        direction-specific z column contains the absolute height of the connected
+        neighbour or is empty when no connection exists. The neighbour x and y
+        are derived from the direction. Connections outside a requested bounding
+        box remain present.
+      parameters:
+        - $ref: "#/components/parameters/Waytype"
+        - $ref: "#/components/parameters/MinX"
+        - $ref: "#/components/parameters/MinY"
+        - $ref: "#/components/parameters/MaxX"
+        - $ref: "#/components/parameters/MaxY"
+      responses:
+        "200":
+          description: Compact way topology snapshot.
+          headers:
+            X-Simutrans-World-Epoch: {$ref: "#/components/headers/WorldEpoch"}
+            X-Simutrans-Snapshot-Sequence: {$ref: "#/components/headers/SnapshotSequence"}
+            X-Simutrans-Sync-Step: {$ref: "#/components/headers/SyncStep"}
+            X-Simutrans-Generated-At-Ms: {$ref: "#/components/headers/GeneratedAtMs"}
+          content:
+            text/csv:
+              schema: {type: string}
+              example: |-
+                x,y,z,waytype,physical_ribi,blocked_ribi,north_z,east_z,south_z,west_z
+                10,20,0,track,10,0,,0,,0
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "405": {$ref: "#/components/responses/MethodNotAllowed"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
   /api/v1/convoys:
     options:
       operationId: preflightConvoys
@@ -457,6 +534,30 @@ components:
           - tram
           - maglev
           - narrowgauge
+    MinX:
+      name: min_x
+      in: query
+      required: false
+      description: Inclusive minimum map X coordinate. All four bounds must be supplied together.
+      schema: {type: integer, minimum: 0}
+    MinY:
+      name: min_y
+      in: query
+      required: false
+      description: Inclusive minimum map Y coordinate. All four bounds must be supplied together.
+      schema: {type: integer, minimum: 0}
+    MaxX:
+      name: max_x
+      in: query
+      required: false
+      description: Inclusive maximum map X coordinate. All four bounds must be supplied together.
+      schema: {type: integer, minimum: 0}
+    MaxY:
+      name: max_y
+      in: query
+      required: false
+      description: Inclusive maximum map Y coordinate. All four bounds must be supplied together.
+      schema: {type: integer, minimum: 0}
   headers:
     WorldEpoch:
       description: Changes when a map is created or loaded.
@@ -552,7 +653,7 @@ components:
           additionalProperties: false
         endpoints:
           type: object
-          required: [time, map_info, companies, stops, lines, convoys, convoy_positions]
+          required: [time, map_info, companies, stops, lines, ways, way_topology, convoys, convoy_positions]
           properties:
             time:
               type: string
@@ -569,6 +670,12 @@ components:
             lines:
               type: string
               const: /api/v1/lines
+            ways:
+              type: string
+              const: /api/v1/ways
+            way_topology:
+              type: string
+              const: /api/v1/way-topology
             convoys:
               type: string
               const: /api/v1/convoys
@@ -836,6 +943,57 @@ components:
           minimum: 0
           maximum: 255
       additionalProperties: false
+    WayList:
+      type: object
+      required: [api_version, world_epoch, sync_step, snapshot_sequence, generated_at_ms, ways]
+      properties:
+        api_version: {type: string, const: v1}
+        world_epoch: {type: integer, format: int64, minimum: 0}
+        sync_step: {type: integer, format: int64, minimum: 0}
+        snapshot_sequence: {type: integer, format: int64, minimum: 0}
+        generated_at_ms: {type: integer, format: int64, minimum: 0}
+        ways:
+          type: array
+          items: {$ref: "#/components/schemas/Way"}
+      additionalProperties: false
+    Way:
+      type: object
+      required: [position, waytype, company_id, descriptor_name, max_speed_kmh, electrified, structure, physical_directions, blocked_directions, connections]
+      properties:
+        position: {$ref: "#/components/schemas/Position"}
+        waytype: {$ref: "#/components/schemas/WaytypeName"}
+        company_id:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 15
+        descriptor_name: {type: string}
+        max_speed_kmh: {type: integer, minimum: 0}
+        electrified: {type: boolean}
+        structure:
+          type: string
+          enum: [surface, elevated, bridge, tunnel]
+        physical_directions:
+          type: array
+          uniqueItems: true
+          items: {$ref: "#/components/schemas/CardinalDirection"}
+        blocked_directions:
+          type: array
+          uniqueItems: true
+          items: {$ref: "#/components/schemas/CardinalDirection"}
+        connections:
+          type: array
+          items: {$ref: "#/components/schemas/WayConnection"}
+      additionalProperties: false
+    WayConnection:
+      type: object
+      required: [direction, position]
+      properties:
+        direction: {$ref: "#/components/schemas/CardinalDirection"}
+        position: {$ref: "#/components/schemas/Position"}
+      additionalProperties: false
+    CardinalDirection:
+      type: string
+      enum: [north, east, south, west]
     ConvoyList:
       type: object
       required:
@@ -1071,6 +1229,10 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
     {
       "name": "Stops",
       "description": "Stops and passenger waiting information in the currently loaded map."
+    },
+    {
+      "name": "Ways",
+      "description": "Tile-level transport infrastructure topology in the currently loaded map."
     },
     {
       "name": "Convoys",
@@ -1592,6 +1754,149 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
         }
       }
     },
+    "/api/v1/ways": {
+      "options": {
+        "operationId": "preflightWays",
+        "summary": "CORS preflight",
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/CorsPreflight"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Ways"
+        ],
+        "operationId": "listWays",
+        "summary": "List way topology tiles",
+        "description": "Returns explicit way objects in stable y, x, z, and waytype order. If a\nbounding box is supplied, connections from tiles inside the box may point\noutside it. Large maps can produce large responses, so display clients\nshould normally request only their visible area.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Waytype"
+          },
+          {
+            "$ref": "#/components/parameters/MinX"
+          },
+          {
+            "$ref": "#/components/parameters/MinY"
+          },
+          {
+            "$ref": "#/components/parameters/MaxX"
+          },
+          {
+            "$ref": "#/components/parameters/MaxY"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Way topology snapshot.",
+            "headers": {
+              "X-Simutrans-World-Epoch": {
+                "$ref": "#/components/headers/WorldEpoch"
+              },
+              "X-Simutrans-Snapshot-Sequence": {
+                "$ref": "#/components/headers/SnapshotSequence"
+              },
+              "X-Simutrans-Sync-Step": {
+                "$ref": "#/components/headers/SyncStep"
+              },
+              "X-Simutrans-Generated-At-Ms": {
+                "$ref": "#/components/headers/GeneratedAtMs"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WayList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/way-topology": {
+      "options": {
+        "operationId": "preflightWayTopology",
+        "summary": "CORS preflight",
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/CorsPreflight"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Ways"
+        ],
+        "operationId": "getWayTopology",
+        "summary": "Get compact way topology as CSV",
+        "description": "Returns one CSV record per matching way in stable y, x, z, and waytype\norder. Direction bits use north=1, east=2, south=4, and west=8. Each\ndirection-specific z column contains the absolute height of the connected\nneighbour or is empty when no connection exists. The neighbour x and y\nare derived from the direction. Connections outside a requested bounding\nbox remain present.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Waytype"
+          },
+          {
+            "$ref": "#/components/parameters/MinX"
+          },
+          {
+            "$ref": "#/components/parameters/MinY"
+          },
+          {
+            "$ref": "#/components/parameters/MaxX"
+          },
+          {
+            "$ref": "#/components/parameters/MaxY"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compact way topology snapshot.",
+            "headers": {
+              "X-Simutrans-World-Epoch": {
+                "$ref": "#/components/headers/WorldEpoch"
+              },
+              "X-Simutrans-Snapshot-Sequence": {
+                "$ref": "#/components/headers/SnapshotSequence"
+              },
+              "X-Simutrans-Sync-Step": {
+                "$ref": "#/components/headers/SyncStep"
+              },
+              "X-Simutrans-Generated-At-Ms": {
+                "$ref": "#/components/headers/GeneratedAtMs"
+              }
+            },
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "x,y,z,waytype,physical_ribi,blocked_ribi,north_z,east_z,south_z,west_z\n10,20,0,track,10,0,,0,,0"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
     "/api/v1/convoys": {
       "options": {
         "operationId": "preflightConvoys",
@@ -1766,6 +2071,46 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
             "narrowgauge"
           ]
         }
+      },
+      "MinX": {
+        "name": "min_x",
+        "in": "query",
+        "required": false,
+        "description": "Inclusive minimum map X coordinate. All four bounds must be supplied together.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "MinY": {
+        "name": "min_y",
+        "in": "query",
+        "required": false,
+        "description": "Inclusive minimum map Y coordinate. All four bounds must be supplied together.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "MaxX": {
+        "name": "max_x",
+        "in": "query",
+        "required": false,
+        "description": "Inclusive maximum map X coordinate. All four bounds must be supplied together.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "MaxY": {
+        "name": "max_y",
+        "in": "query",
+        "required": false,
+        "description": "Inclusive maximum map Y coordinate. All four bounds must be supplied together.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "headers": {
@@ -1922,6 +2267,8 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
               "companies",
               "stops",
               "lines",
+              "ways",
+              "way_topology",
               "convoys",
               "convoy_positions"
             ],
@@ -1945,6 +2292,14 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
               "lines": {
                 "type": "string",
                 "const": "/api/v1/lines"
+              },
+              "ways": {
+                "type": "string",
+                "const": "/api/v1/ways"
+              },
+              "way_topology": {
+                "type": "string",
+                "const": "/api/v1/way-topology"
               },
               "convoys": {
                 "type": "string",
@@ -2481,6 +2836,146 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
           }
         },
         "additionalProperties": false
+      },
+      "WayList": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "world_epoch",
+          "sync_step",
+          "snapshot_sequence",
+          "generated_at_ms",
+          "ways"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "string",
+            "const": "v1"
+          },
+          "world_epoch": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sync_step": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "snapshot_sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "generated_at_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ways": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Way"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "Way": {
+        "type": "object",
+        "required": [
+          "position",
+          "waytype",
+          "company_id",
+          "descriptor_name",
+          "max_speed_kmh",
+          "electrified",
+          "structure",
+          "physical_directions",
+          "blocked_directions",
+          "connections"
+        ],
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/Position"
+          },
+          "waytype": {
+            "$ref": "#/components/schemas/WaytypeName"
+          },
+          "company_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 15
+          },
+          "descriptor_name": {
+            "type": "string"
+          },
+          "max_speed_kmh": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "electrified": {
+            "type": "boolean"
+          },
+          "structure": {
+            "type": "string",
+            "enum": [
+              "surface",
+              "elevated",
+              "bridge",
+              "tunnel"
+            ]
+          },
+          "physical_directions": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/CardinalDirection"
+            }
+          },
+          "blocked_directions": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/CardinalDirection"
+            }
+          },
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WayConnection"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "WayConnection": {
+        "type": "object",
+        "required": [
+          "direction",
+          "position"
+        ],
+        "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/CardinalDirection"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Position"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CardinalDirection": {
+        "type": "string",
+        "enum": [
+          "north",
+          "east",
+          "south",
+          "west"
+        ]
       },
       "ConvoyList": {
         "type": "object",

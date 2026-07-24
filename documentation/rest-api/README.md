@@ -38,3 +38,17 @@ to stop there, and expose passenger totals and previous-month throughput. Per-st
 passenger destinations and ordered line schedules are available from their
 resource-specific paths. All resource IDs must be refreshed when `world_epoch`
 changes.
+
+`GET /api/v1/ways` returns tile-level topology for explicitly built transport
+ways. It includes physical connections, current direction masks, ownership,
+speed, electrification, and structure information. Omitting the bounding-box
+parameters returns the entire map in one response; because this can be large,
+live map displays should normally supply `min_x`, `min_y`, `max_x`, and `max_y`
+for the visible area.
+
+`GET /api/v1/way-topology` returns the same tile selection as compact CSV with
+only coordinates, waytype, physical and blocked direction bits, and connected
+neighbour heights. Direction bits are north=1, east=2, south=4, and west=8.
+Clients that only draw or analyse topology should prefer this endpoint and use
+the bounding-box parameters for the visible area on large maps. Use `ways` when
+ownership, pak descriptor, speed, electrification, or structure data is needed.
