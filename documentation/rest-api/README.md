@@ -39,6 +39,12 @@ passenger destinations and ordered line schedules are available from their
 resource-specific paths. All resource IDs must be refreshed when `world_epoch`
 changes.
 
+`GET /api/v1/stop-tiles` returns the `{x, y, z}` tiles that make up each stop.
+This geometry is kept separate from the frequently polled passenger statistics
+in `stops`. Map displays should cache it and, on large maps, use the bounding-box
+parameters to request only the visible area. An optional `company_id` applies the
+same effective stop-access filter as `stops`.
+
 `GET /api/v1/ways` returns tile-level topology for explicitly built transport
 ways. It includes physical connections, current direction masks, ownership,
 speed, electrification, and structure information. Omitting the bounding-box
@@ -52,3 +58,8 @@ neighbour heights. Direction bits are north=1, east=2, south=4, and west=8.
 Clients that only draw or analyse topology should prefer this endpoint and use
 the bounding-box parameters for the visible area on large maps. Use `ways` when
 ownership, pak descriptor, speed, electrification, or structure data is needed.
+
+`GET /api/v1/road-signs` returns railway signals, traffic lights, and static
+road signs with their positions, directions, ownership, pak descriptors, and
+current signal states where applicable. Large-map displays should use the
+waytype and bounding-box parameters to limit responses to the visible area.

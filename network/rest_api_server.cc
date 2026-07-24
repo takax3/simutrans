@@ -30,6 +30,7 @@
 #include "../network/pakset_info.h"
 #include "../player/simplay.h"
 #include "../player/finance.h"
+#include "../obj/roadsign.h"
 #include "../simcity.h"
 #include "../simconvoi.h"
 #include "../simconst.h"
@@ -80,6 +81,18 @@ struct way_filter_t {
 	sint16 max_y;
 
 	way_filter_t() : has_bounds(false), min_x(0), min_y(0), max_x(0), max_y(0) {}
+};
+
+struct stop_tile_filter_t {
+	bool has_company_id;
+	uint8 company_id;
+	bool has_bounds;
+	sint16 min_x;
+	sint16 min_y;
+	sint16 max_x;
+	sint16 max_y;
+
+	stop_tile_filter_t() : has_company_id(false), company_id(0), has_bounds(false), min_x(0), min_y(0), max_x(0), max_y(0) {}
 };
 
 static void set_nonblocking(SOCKET socket)
@@ -432,6 +445,67 @@ static bool parse_way_query(const std::string &query, const koord &map_size,
 	return true;
 }
 
+static bool parse_stop_tile_query(const std::string &query, const koord &map_size,
+	stop_tile_filter_t &filter, std::string &error)
+{
+	if (query.empty()) return true;
+
+	bool found_min_x = false;
+	bool found_min_y = false;
+	bool found_max_x = false;
+	bool found_max_y = false;
+	size_t start = 0;
+	while (start <= query.size()) {
+		const size_t end = query.find('&', start);
+		const std::string item = query.substr(start, end == std::string::npos ? std::string::npos : end - start);
+		const size_t equals = item.find('=');
+		if (equals == std::string::npos) {
+			error = "unknown or malformed query parameter";
+			return false;
+		}
+		const std::string name = item.substr(0, equals);
+		const std::string value = item.substr(equals + 1);
+		if (name == "company_id") {
+			if (filter.has_company_id) { error = "company_id may only be specified once"; return false; }
+			filter.has_company_id = true;
+			if (!parse_company_id(value, filter.company_id)) { error = "invalid company_id"; return false; }
+		}
+		else {
+			bool *found = NULL;
+			sint16 *coordinate = NULL;
+			if (name == "min_x") { found = &found_min_x; coordinate = &filter.min_x; }
+			else if (name == "min_y") { found = &found_min_y; coordinate = &filter.min_y; }
+			else if (name == "max_x") { found = &found_max_x; coordinate = &filter.max_x; }
+			else if (name == "max_y") { found = &found_max_y; coordinate = &filter.max_y; }
+			else { error = "unknown or malformed query parameter"; return false; }
+			if (*found) { error = name + " may only be specified once"; return false; }
+			*found = true;
+			if (!parse_map_coordinate(value, *coordinate)) { error = "invalid " + name; return false; }
+		}
+		if (end == std::string::npos) break;
+		start = end + 1;
+	}
+
+	const unsigned int bound_count = static_cast<unsigned int>(found_min_x) + static_cast<unsigned int>(found_min_y) +
+		static_cast<unsigned int>(found_max_x) + static_cast<unsigned int>(found_max_y);
+	if (bound_count != 0 && bound_count != 4) {
+		error = "min_x, min_y, max_x, and max_y must be specified together";
+		return false;
+	}
+	filter.has_bounds = bound_count == 4;
+	if (filter.has_bounds) {
+		if (filter.min_x > filter.max_x || filter.min_y > filter.max_y) {
+			error = "minimum bounds must not exceed maximum bounds";
+			return false;
+		}
+		if (filter.max_x >= map_size.x || filter.max_y >= map_size.y) {
+			error = "bounds are outside the map";
+			return false;
+		}
+	}
+	return true;
+}
+
 static const char *ai_type_name(uint8 ai_type)
 {
 	switch (ai_type) {
@@ -538,8 +612,10 @@ static bool is_known_path(const std::string &path)
 		path == "/api/v1/map-info" ||
 		path == "/api/v1/companies" ||
 		path == "/api/v1/stops" ||
+		path == "/api/v1/stop-tiles" ||
 		path == "/api/v1/lines" ||
 		path == "/api/v1/ways" ||
+		path == "/api/v1/road-signs" ||
 		path == "/api/v1/way-topology" ||
 		path == "/api/v1/convoys" ||
 		path == "/api/v1/convoy-positions" || is_waiting_path || is_schedule_path;
@@ -815,6 +891,66 @@ static std::string make_stops_json(karte_t *world, bool has_company_id, uint8 co
 	return body.str();
 }
 
+struct position_less_t {
+	bool operator()(const koord3d &a, const koord3d &b) const {
+		if (a.x != b.x) return a.x < b.x;
+		if (a.y != b.y) return a.y < b.y;
+		return a.z < b.z;
+	}
+};
+
+struct stop_tiles_snapshot_t {
+	uint32 stop_id;
+	std::vector<koord3d> tiles;
+};
+
+static std::string make_stop_tiles_json(karte_t *world, const stop_tile_filter_t &filter,
+	uint64 epoch, uint64 sequence, uint32 generated_at)
+{
+	std::vector<stop_tiles_snapshot_t> stops;
+	FOR(vector_tpl<halthandle_t>, stop, haltestelle_t::get_alle_haltestellen()) {
+		if (!stop.is_bound()) continue;
+		if (filter.has_company_id) {
+			bool allowed_company_ids[MAX_PLAYER_COUNT];
+			collect_stop_allowed_company_ids(world, stop.get_rep(), allowed_company_ids);
+			if (!allowed_company_ids[filter.company_id]) continue;
+		}
+
+		stop_tiles_snapshot_t snapshot;
+		snapshot.stop_id = stop.get_id();
+		FOR(slist_tpl<haltestelle_t::tile_t>, const &tile, stop->get_tiles()) {
+			if (tile.grund == NULL) continue;
+			const koord3d pos = tile.grund->get_pos();
+			if (filter.has_bounds && (pos.x < filter.min_x || pos.x > filter.max_x ||
+				pos.y < filter.min_y || pos.y > filter.max_y)) continue;
+			snapshot.tiles.push_back(pos);
+		}
+		if (snapshot.tiles.empty()) continue;
+		std::sort(snapshot.tiles.begin(), snapshot.tiles.end(), position_less_t());
+		stops.push_back(snapshot);
+	}
+	std::sort(stops.begin(), stops.end(), [](const stop_tiles_snapshot_t &a, const stop_tiles_snapshot_t &b) {
+		return a.stop_id < b.stop_id;
+	});
+
+	std::ostringstream body;
+	body << "{\"api_version\":\"v1\",\"world_epoch\":" << epoch
+		<< ",\"sync_step\":" << world->get_sync_steps() << ",\"snapshot_sequence\":" << sequence
+		<< ",\"generated_at_ms\":" << generated_at << ",\"stops\":[";
+	for (size_t i = 0; i < stops.size(); ++i) {
+		if (i) body << ',';
+		body << "{\"stop_id\":" << stops[i].stop_id << ",\"tiles\":[";
+		for (size_t j = 0; j < stops[i].tiles.size(); ++j) {
+			if (j) body << ',';
+			const koord3d pos = stops[i].tiles[j];
+			body << "{\"x\":" << pos.x << ",\"y\":" << pos.y << ",\"z\":" << static_cast<int>(pos.z) << '}';
+		}
+		body << "]}";
+	}
+	body << "]}\n";
+	return body.str();
+}
+
 struct waiting_destination_t { uint32 id; uint32 amount; };
 struct waiting_destination_less_t {
 	bool operator()(const waiting_destination_t &a, const waiting_destination_t &b) const {
@@ -1051,6 +1187,103 @@ static std::string make_ways_json(karte_t *world, const way_filter_t &filter,
 				<< static_cast<int>(neighbour_pos.z) << "}}";
 		}
 		body << "]}";
+	}
+	body << "]}\n";
+	return body.str();
+}
+
+struct road_sign_snapshot_t {
+	roadsign_t *road_sign;
+};
+
+struct road_sign_snapshot_less_t {
+	bool operator()(const road_sign_snapshot_t &a, const road_sign_snapshot_t &b) const {
+		const koord3d a_pos = a.road_sign->get_pos();
+		const koord3d b_pos = b.road_sign->get_pos();
+		if (a_pos.y != b_pos.y) return a_pos.y < b_pos.y;
+		if (a_pos.x != b_pos.x) return a_pos.x < b_pos.x;
+		if (a_pos.z != b_pos.z) return a_pos.z < b_pos.z;
+		if (a.road_sign->get_waytype() != b.road_sign->get_waytype()) return a.road_sign->get_waytype() < b.road_sign->get_waytype();
+		const roadsign_desc_t *a_desc = a.road_sign->get_desc();
+		const roadsign_desc_t *b_desc = b.road_sign->get_desc();
+		return strcmp(a_desc != NULL ? a_desc->get_name() : "", b_desc != NULL ? b_desc->get_name() : "") < 0;
+	}
+};
+
+static const char *road_sign_kind(const roadsign_desc_t *desc)
+{
+	if (desc == NULL) return "other";
+	if (desc->is_pre_signal()) return "pre_signal";
+	if (desc->is_priority_signal()) return "priority_signal";
+	if (desc->is_longblock_signal()) return "longblock_signal";
+	if (desc->is_signal_type() && desc->is_choose_sign()) return "choose_signal";
+	if (desc->is_signal_type()) return "signal";
+	if (desc->is_traffic_light()) return "traffic_light";
+	if (desc->is_end_choose_signal()) return "end_of_choose";
+	if (desc->is_private_way()) return "private_road";
+	if (desc->is_single_way()) return "one_way";
+	return "other";
+}
+
+static const char *road_sign_state(roadsign_t *road_sign)
+{
+	switch (road_sign->get_state()) {
+		case roadsign_t::STATE_RED: return "red";
+		case roadsign_t::STATE_GREEN: return "green";
+		case roadsign_t::STATE_YELLOW: return "yellow";
+	}
+	return "red";
+}
+
+static std::string make_road_signs_json(karte_t *world, const way_filter_t &filter,
+	uint64 epoch, uint64 sequence, uint32 generated_at)
+{
+	std::vector<road_sign_snapshot_t> road_signs;
+	const koord size = world->get_size();
+	const sint16 min_x = filter.has_bounds ? filter.min_x : 0;
+	const sint16 min_y = filter.has_bounds ? filter.min_y : 0;
+	const sint16 max_x = filter.has_bounds ? filter.max_x : size.x - 1;
+	const sint16 max_y = filter.has_bounds ? filter.max_y : size.y - 1;
+	for (sint16 y = min_y; y <= max_y; ++y) {
+		for (sint16 x = min_x; x <= max_x; ++x) {
+			planquadrat_t *plan = world->access(x, y);
+			for (unsigned int ground_index = 0; ground_index < plan->get_boden_count(); ++ground_index) {
+				grund_t *ground = plan->get_boden_bei(ground_index);
+				for (uint8 object_index = 0; object_index < ground->get_top(); ++object_index) {
+					obj_t *object = ground->obj_bei(object_index);
+					if (object == NULL || (object->get_typ() != obj_t::signal && object->get_typ() != obj_t::roadsign)) continue;
+					roadsign_t *road_sign = static_cast<roadsign_t *>(object);
+					if (filter_matches(filter.waytype, road_sign->get_waytype())) {
+						road_signs.push_back(road_sign_snapshot_t{road_sign});
+					}
+				}
+			}
+		}
+	}
+	std::sort(road_signs.begin(), road_signs.end(), road_sign_snapshot_less_t());
+
+	std::ostringstream body;
+	body << "{\"api_version\":\"v1\",\"world_epoch\":" << epoch
+		<< ",\"sync_step\":" << world->get_sync_steps()
+		<< ",\"snapshot_sequence\":" << sequence
+		<< ",\"generated_at_ms\":" << generated_at << ",\"road_signs\":[";
+	for (size_t i = 0; i < road_signs.size(); ++i) {
+		roadsign_t *road_sign = road_signs[i].road_sign;
+		const roadsign_desc_t *desc = road_sign->get_desc();
+		const koord3d pos = road_sign->get_pos();
+		if (i) body << ',';
+		body << "{\"position\":{\"x\":" << pos.x << ",\"y\":" << pos.y
+			<< ",\"z\":" << static_cast<int>(pos.z) << "},\"waytype\":\""
+			<< waytype_name(road_sign->get_waytype()) << "\",\"kind\":\"" << road_sign_kind(desc)
+			<< "\",\"directions\":";
+		append_direction_array(body, road_sign->get_dir());
+		body << ",\"state\":";
+		if (desc != NULL && (desc->is_signal_type() || desc->is_traffic_light())) body << '"' << road_sign_state(road_sign) << '"';
+		else body << "null";
+		body << ",\"company_id\":";
+		if (const player_t *owner = road_sign->get_owner()) body << static_cast<unsigned int>(owner->get_player_nr());
+		else body << "null";
+		body << ",\"descriptor_name\":\"" << json_escape(desc != NULL ? desc->get_name() : "") << "\"}";
 	}
 	body << "]}\n";
 	return body.str();
@@ -1387,7 +1620,7 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 		const std::string body =
 			"{\"name\":\"Simutrans Observer REST API\",\"api_version\":\"v1\","
 			"\"openapi\":{\"yaml\":\"/api/v1/openapi.yaml\",\"json\":\"/api/v1/openapi.json\"},"
-			"\"endpoints\":{\"time\":\"/api/v1/time\",\"map_info\":\"/api/v1/map-info\",\"companies\":\"/api/v1/companies\",\"stops\":\"/api/v1/stops\",\"lines\":\"/api/v1/lines\",\"ways\":\"/api/v1/ways\",\"way_topology\":\"/api/v1/way-topology\","
+			"\"endpoints\":{\"time\":\"/api/v1/time\",\"map_info\":\"/api/v1/map-info\",\"companies\":\"/api/v1/companies\",\"stops\":\"/api/v1/stops\",\"stop_tiles\":\"/api/v1/stop-tiles\",\"lines\":\"/api/v1/lines\",\"ways\":\"/api/v1/ways\",\"road_signs\":\"/api/v1/road-signs\",\"way_topology\":\"/api/v1/way-topology\","
 			"\"convoys\":\"/api/v1/convoys\",\"convoy_positions\":\"/api/v1/convoy-positions\"}}\n";
 		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body);
 		return;
@@ -1410,8 +1643,10 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 	const bool is_map_info = path == "/api/v1/map-info";
 	const bool is_companies = path == "/api/v1/companies";
 	const bool is_stops = path == "/api/v1/stops";
+	const bool is_stop_tiles = path == "/api/v1/stop-tiles";
 	const bool is_lines = path == "/api/v1/lines";
 	const bool is_ways = path == "/api/v1/ways";
+	const bool is_road_signs = path == "/api/v1/road-signs";
 	const bool is_way_topology = path == "/api/v1/way-topology";
 	const bool is_convoys = path == "/api/v1/convoys";
 	const bool is_positions = path == "/api/v1/convoy-positions";
@@ -1429,7 +1664,7 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 		path.size() > line_prefix.size() + schedule_suffix.size() &&
 		path.substr(path.size() - schedule_suffix.size()) == schedule_suffix &&
 		parse_resource_id(path.substr(line_prefix.size(), path.size() - line_prefix.size() - schedule_suffix.size()), schedule_line_id);
-	if (!is_time && !is_map_info && !is_companies && !is_stops && !is_lines && !is_line_schedule && !is_ways && !is_way_topology && !is_convoys && !is_positions && !is_passenger_waiting) {
+	if (!is_time && !is_map_info && !is_companies && !is_stops && !is_stop_tiles && !is_lines && !is_line_schedule && !is_ways && !is_road_signs && !is_way_topology && !is_convoys && !is_positions && !is_passenger_waiting) {
 		connection->send_buf = make_error_response(404, "Not Found", "unknown API path");
 		return;
 	}
@@ -1437,6 +1672,7 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 	waytype_filter_t waytype_filter;
 	line_filter_t line_filter;
 	way_filter_t way_filter;
+	stop_tile_filter_t stop_tile_filter;
 	bool has_stop_company_id = false;
 	uint8 stop_company_id = 0;
 	std::string query_error;
@@ -1452,7 +1688,11 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 		connection->send_buf = make_error_response(400, "Bad Request", query_error);
 		return;
 	}
-	if ((is_ways || is_way_topology) && !parse_way_query(query, world != NULL ? world->get_size() : koord(32767, 32767), way_filter, query_error)) {
+	if (is_stop_tiles && !parse_stop_tile_query(query, world != NULL ? world->get_size() : koord(32767, 32767), stop_tile_filter, query_error)) {
+		connection->send_buf = make_error_response(400, "Bad Request", query_error);
+		return;
+	}
+	if ((is_ways || is_road_signs || is_way_topology) && !parse_way_query(query, world != NULL ? world->get_size() : koord(32767, 32767), way_filter, query_error)) {
 		connection->send_buf = make_error_response(400, "Bad Request", query_error);
 		return;
 	}
@@ -1464,8 +1704,10 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 		connection->send_buf = make_error_response(503, "Service Unavailable", "no world is loaded");
 		return;
 	}
-	if ((is_ways || is_way_topology) && way_filter.has_bounds &&
-		(way_filter.max_x >= world->get_size().x || way_filter.max_y >= world->get_size().y)) {
+	if (((is_ways || is_road_signs || is_way_topology) && way_filter.has_bounds &&
+		(way_filter.max_x >= world->get_size().x || way_filter.max_y >= world->get_size().y)) ||
+		(is_stop_tiles && stop_tile_filter.has_bounds &&
+		(stop_tile_filter.max_x >= world->get_size().x || stop_tile_filter.max_y >= world->get_size().y))) {
 		connection->send_buf = make_error_response(400, "Bad Request", "bounds are outside the map");
 		return;
 	}
@@ -1491,6 +1733,10 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 		const std::string body = make_stops_json(world, has_stop_company_id, stop_company_id, world_epoch, sequence, generated_at);
 		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
 	}
+	else if (is_stop_tiles) {
+		const std::string body = make_stop_tiles_json(world, stop_tile_filter, world_epoch, sequence, generated_at);
+		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
+	}
 	else if (is_lines) {
 		const std::string body = make_lines_json(world, line_filter, world_epoch, sequence, generated_at);
 		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
@@ -1503,6 +1749,10 @@ void rest_api_server_t::handle_request(connection_t *connection, const std::stri
 	}
 	else if (is_ways) {
 		const std::string body = make_ways_json(world, way_filter, world_epoch, sequence, generated_at);
+		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
+	}
+	else if (is_road_signs) {
+		const std::string body = make_road_signs_json(world, way_filter, world_epoch, sequence, generated_at);
 		connection->send_buf = make_http_response(200, "OK", "application/json; charset=utf-8", body, headers);
 	}
 	else if (is_way_topology) {

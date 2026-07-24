@@ -306,6 +306,42 @@ paths:
         "400": {$ref: "#/components/responses/BadRequest"}
         "405": {$ref: "#/components/responses/MethodNotAllowed"}
         "503": {$ref: "#/components/responses/ServiceUnavailable"}
+  /api/v1/stop-tiles:
+    options:
+      operationId: preflightStopTiles
+      summary: CORS preflight
+      responses:
+        "204": {$ref: "#/components/responses/CorsPreflight"}
+    get:
+      tags: [Stops]
+      operationId: listStopTiles
+      summary: List tiles belonging to stops
+      description: |
+        Returns stop geometry in ascending stop ID order, with each stop's tiles
+        in ascending x, y, and z order. Large maps can produce large responses,
+        so display clients should normally request only their visible area.
+        When bounds are supplied, only tiles inside the inclusive bounds are
+        returned and stops without matching tiles are omitted.
+      parameters:
+        - $ref: "#/components/parameters/CompanyId"
+        - $ref: "#/components/parameters/MinX"
+        - $ref: "#/components/parameters/MinY"
+        - $ref: "#/components/parameters/MaxX"
+        - $ref: "#/components/parameters/MaxY"
+      responses:
+        "200":
+          description: Stop tile snapshot.
+          headers:
+            X-Simutrans-World-Epoch: {$ref: "#/components/headers/WorldEpoch"}
+            X-Simutrans-Snapshot-Sequence: {$ref: "#/components/headers/SnapshotSequence"}
+            X-Simutrans-Sync-Step: {$ref: "#/components/headers/SyncStep"}
+            X-Simutrans-Generated-At-Ms: {$ref: "#/components/headers/GeneratedAtMs"}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/StopTileList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "405": {$ref: "#/components/responses/MethodNotAllowed"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
   /api/v1/stops/{stop_id}/passenger-waiting:
     options:
       operationId: preflightPassengerWaiting
@@ -365,6 +401,42 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/WayList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "405": {$ref: "#/components/responses/MethodNotAllowed"}
+        "503": {$ref: "#/components/responses/ServiceUnavailable"}
+  /api/v1/road-signs:
+    options:
+      operationId: preflightRoadSigns
+      summary: CORS preflight
+      responses:
+        "204": {$ref: "#/components/responses/CorsPreflight"}
+    get:
+      tags: [Ways]
+      operationId: listRoadSigns
+      summary: List road signs and signals
+      description: |
+        Returns railway signals, traffic lights, and static road signs in stable
+        y, x, z, waytype, and descriptor-name order. Signal and traffic-light
+        records include their current state; static signs have a null state.
+        Large maps can produce large responses, so display clients should
+        normally request only their visible area.
+      parameters:
+        - $ref: "#/components/parameters/Waytype"
+        - $ref: "#/components/parameters/MinX"
+        - $ref: "#/components/parameters/MinY"
+        - $ref: "#/components/parameters/MaxX"
+        - $ref: "#/components/parameters/MaxY"
+      responses:
+        "200":
+          description: Road-sign and signal snapshot.
+          headers:
+            X-Simutrans-World-Epoch: {$ref: "#/components/headers/WorldEpoch"}
+            X-Simutrans-Snapshot-Sequence: {$ref: "#/components/headers/SnapshotSequence"}
+            X-Simutrans-Sync-Step: {$ref: "#/components/headers/SyncStep"}
+            X-Simutrans-Generated-At-Ms: {$ref: "#/components/headers/GeneratedAtMs"}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RoadSignList"}
         "400": {$ref: "#/components/responses/BadRequest"}
         "405": {$ref: "#/components/responses/MethodNotAllowed"}
         "503": {$ref: "#/components/responses/ServiceUnavailable"}
@@ -649,7 +721,7 @@ components:
           additionalProperties: false
         endpoints:
           type: object
-          required: [time, map_info, companies, stops, lines, ways, way_topology, convoys, convoy_positions]
+          required: [time, map_info, companies, stops, stop_tiles, lines, ways, road_signs, way_topology, convoys, convoy_positions]
           properties:
             time:
               type: string
@@ -663,12 +735,18 @@ components:
             stops:
               type: string
               const: /api/v1/stops
+            stop_tiles:
+              type: string
+              const: /api/v1/stop-tiles
             lines:
               type: string
               const: /api/v1/lines
             ways:
               type: string
               const: /api/v1/ways
+            road_signs:
+              type: string
+              const: /api/v1/road-signs
             way_topology:
               type: string
               const: /api/v1/way-topology
@@ -980,6 +1058,42 @@ components:
           type: array
           items: {$ref: "#/components/schemas/WayConnection"}
       additionalProperties: false
+    RoadSignList:
+      type: object
+      required: [api_version, world_epoch, sync_step, snapshot_sequence, generated_at_ms, road_signs]
+      properties:
+        api_version: {type: string, const: v1}
+        world_epoch: {type: integer, format: int64, minimum: 0}
+        sync_step: {type: integer, format: int64, minimum: 0}
+        snapshot_sequence: {type: integer, format: int64, minimum: 0}
+        generated_at_ms: {type: integer, format: int64, minimum: 0}
+        road_signs:
+          type: array
+          items: {$ref: "#/components/schemas/RoadSign"}
+      additionalProperties: false
+    RoadSign:
+      type: object
+      required: [position, waytype, kind, directions, state, company_id, descriptor_name]
+      properties:
+        position: {$ref: "#/components/schemas/Position"}
+        waytype: {$ref: "#/components/schemas/WaytypeName"}
+        kind:
+          type: string
+          enum: [signal, choose_signal, pre_signal, priority_signal, longblock_signal, traffic_light, one_way, private_road, end_of_choose, other]
+        directions:
+          type: array
+          uniqueItems: true
+          items: {$ref: "#/components/schemas/CardinalDirection"}
+        state:
+          description: Current signal aspect, or null for a static sign.
+          type: [string, "null"]
+          enum: [red, green, yellow, null]
+        company_id:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 15
+        descriptor_name: {type: string}
+      additionalProperties: false
     WayConnection:
       type: object
       required: [direction, position]
@@ -1117,6 +1231,29 @@ components:
           format: int64
           minimum: 0
           description: Total goods and passengers that departed during the previous month.
+      additionalProperties: false
+    StopTileList:
+      type: object
+      required: [api_version, world_epoch, sync_step, snapshot_sequence, generated_at_ms, stops]
+      properties:
+        api_version: {type: string, const: v1}
+        world_epoch: {type: integer, format: int64, minimum: 0}
+        sync_step: {type: integer, format: int64, minimum: 0}
+        snapshot_sequence: {type: integer, format: int64, minimum: 0}
+        generated_at_ms: {type: integer, format: int64, minimum: 0}
+        stops:
+          type: array
+          items: {$ref: "#/components/schemas/StopTiles"}
+      additionalProperties: false
+    StopTiles:
+      type: object
+      required: [stop_id, tiles]
+      properties:
+        stop_id: {type: integer, format: int64, minimum: 1}
+        tiles:
+          type: array
+          minItems: 1
+          items: {$ref: "#/components/schemas/Position"}
       additionalProperties: false
     PassengerWaiting:
       type: object
