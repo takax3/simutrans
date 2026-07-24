@@ -665,23 +665,12 @@ static std::string make_companies_json(karte_t *world, uint64 epoch, uint64 sequ
 	return body.str();
 }
 
-static void collect_stop_company_ids(const haltestelle_t *stop, bool company_ids[MAX_PLAYER_COUNT])
+static void collect_stop_allowed_company_ids(karte_t *world, const haltestelle_t *stop,
+	bool allowed_company_ids[MAX_PLAYER_COUNT])
 {
 	for (uint8 i = 0; i < MAX_PLAYER_COUNT; ++i) {
-		company_ids[i] = false;
-	}
-	if (const player_t *owner = stop->get_owner()) {
-		company_ids[owner->get_player_nr()] = true;
-	}
-	FOR(vector_tpl<linehandle_t>, line, stop->registered_lines) {
-		if (line.is_bound() && line->get_owner() != NULL) {
-			company_ids[line->get_owner()->get_player_nr()] = true;
-		}
-	}
-	FOR(vector_tpl<convoihandle_t>, convoy, stop->registered_convoys) {
-		if (convoy.is_bound() && convoy->get_owner() != NULL) {
-			company_ids[convoy->get_owner()->get_player_nr()] = true;
-		}
+		const player_t *company = world->get_player(i);
+		allowed_company_ids[i] = company != NULL && stop->is_connection_allowed(company);
 	}
 }
 
@@ -695,9 +684,9 @@ static std::string make_stops_json(karte_t *world, bool has_company_id, uint8 co
 	std::vector<halthandle_t> stops;
 	FOR(vector_tpl<halthandle_t>, stop, haltestelle_t::get_alle_haltestellen()) {
 		if (!stop.is_bound()) continue;
-		bool company_ids[MAX_PLAYER_COUNT];
-		collect_stop_company_ids(stop.get_rep(), company_ids);
-		if (!has_company_id || company_ids[company_id]) stops.push_back(stop);
+		bool allowed_company_ids[MAX_PLAYER_COUNT];
+		collect_stop_allowed_company_ids(world, stop.get_rep(), allowed_company_ids);
+		if (!has_company_id || allowed_company_ids[company_id]) stops.push_back(stop);
 	}
 	std::sort(stops.begin(), stops.end(), halt_id_less_t());
 
@@ -708,13 +697,20 @@ static std::string make_stops_json(karte_t *world, bool has_company_id, uint8 co
 	for (size_t i = 0; i < stops.size(); ++i) {
 		const haltestelle_t *stop = stops[i].get_rep();
 		const koord3d pos = stop->get_basis_pos3d();
-		bool company_ids[MAX_PLAYER_COUNT];
-		collect_stop_company_ids(stop, company_ids);
+		bool allowed_company_ids[MAX_PLAYER_COUNT];
+		collect_stop_allowed_company_ids(world, stop, allowed_company_ids);
 		if (i) body << ',';
 		body << "{\"id\":" << stops[i].get_id() << ",\"name\":\"" << json_escape(stop->get_name())
-			<< "\",\"company_ids\":[";
+			<< "\",\"owner_company_id\":";
+		if (const player_t *owner = stop->get_owner()) {
+			body << static_cast<unsigned int>(owner->get_player_nr());
+		}
+		else {
+			body << "null";
+		}
+		body << ",\"allowed_company_ids\":[";
 		bool first_company = true;
-		for (uint8 c = 0; c < MAX_PLAYER_COUNT; ++c) if (company_ids[c]) {
+		for (uint8 c = 0; c < MAX_PLAYER_COUNT; ++c) if (allowed_company_ids[c]) {
 			if (!first_company) body << ',';
 			first_company = false; body << static_cast<unsigned int>(c);
 		}

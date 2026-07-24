@@ -33,7 +33,8 @@ contains the human-readable OTRP version.
 
 World-monitor clients can use `companies`, `stops`, `lines`, and `convoys` as
 structured data sources. Company records include the internal account balance;
-stop records expose passenger totals and previous-month throughput. Per-stop
+stop records separate the owning company from all companies effectively allowed
+to stop there, and expose passenger totals and previous-month throughput. Per-stop
 passenger destinations and ordered line schedules are available from their
 resource-specific paths. All resource IDs must be refreshed when `world_epoch`
 changes.

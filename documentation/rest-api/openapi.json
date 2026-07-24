@@ -460,7 +460,15 @@
         "summary": "List stops and passenger statistics",
         "parameters": [
           {
-            "$ref": "#/components/parameters/CompanyId"
+            "name": "company_id",
+            "in": "query",
+            "required": false,
+            "description": "Filters stops where the company is effectively allowed to stop. A valid but unused ID returns an empty list.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 15
+            }
           }
         ],
         "responses": {
@@ -1628,7 +1636,8 @@
         "required": [
           "id",
           "name",
-          "company_ids",
+          "owner_company_id",
+          "allowed_company_ids",
           "position",
           "passenger_waiting",
           "passenger_capacity",
@@ -1644,7 +1653,17 @@
           "name": {
             "type": "string"
           },
-          "company_ids": {
+          "owner_company_id": {
+            "description": "Company that owns the stop, or null for an unowned stop.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 15
+          },
+          "allowed_company_ids": {
+            "description": "Existing companies effectively allowed to stop here, including the owner. Public or globally shared stops contain every existing company.",
             "type": "array",
             "uniqueItems": true,
             "items": {
