@@ -533,9 +533,13 @@ paths:
       summary: List current convoy positions
       description: |
         Returns one CSV record per matching convoy. Coordinates are the current
-        map position. Next coordinates and movement progress are intentionally
-        outside this version of the API. `route_index` is empty while a convoy
-        is in a depot.
+        map position. `facing_direction` is the current eight-way orientation
+        of the front vehicle and remains available while the convoy is stopped.
+        `next_x`, `next_y`, and `next_z` identify the front vehicle's next tile
+        whenever its route is determined, including while the convoy is stopped.
+        They are empty when no distinct next tile is available. Movement progress
+        within the current tile is intentionally outside this version of the API.
+        `route_index` and `facing_direction` are empty while a convoy is in a depot.
       parameters:
         - $ref: "#/components/parameters/Waytype"
       responses:
@@ -555,9 +559,9 @@ paths:
               schema:
                 type: string
               example: |-
-                convoy_id,waytype,state,state_code,speed_kmh,x,y,z,route_index
-                12,track,driving,6,80,123,45,0,27
-                18,road,loading,7,0,140,51,0,4
+                convoy_id,waytype,state,state_code,speed_kmh,x,y,z,route_index,facing_direction,next_x,next_y,next_z
+                12,track,driving,6,80,123,45,0,27,northeast,124,44,0
+                18,track,loading,7,0,140,51,0,4,east,141,51,0
         "400":
           $ref: "#/components/responses/BadRequest"
         "405":
@@ -2251,7 +2255,7 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
         ],
         "operationId": "listConvoyPositions",
         "summary": "List current convoy positions",
-        "description": "Returns one CSV record per matching convoy. Coordinates are the current\nmap position. Next coordinates and movement progress are intentionally\noutside this version of the API. `route_index` is empty while a convoy\nis in a depot.\n",
+        "description": "Returns one CSV record per matching convoy. Coordinates are the current\nmap position. `facing_direction` is the current eight-way orientation\nof the front vehicle and remains available while the convoy is stopped.\n`next_x`, `next_y`, and `next_z` identify the front vehicle's next tile\nwhenever its route is determined, including while the convoy is stopped.\nThey are empty when no distinct next tile is available. Movement progress\nwithin the current tile is intentionally outside this version of the API.\n`route_index` and `facing_direction` are empty while a convoy is in a depot.\n",
         "parameters": [
           {
             "$ref": "#/components/parameters/Waytype"
@@ -2279,7 +2283,7 @@ static const char REST_API_OPENAPI_JSON[] = R"SIM_OPENAPI({
                 "schema": {
                   "type": "string"
                 },
-                "example": "convoy_id,waytype,state,state_code,speed_kmh,x,y,z,route_index\n12,track,driving,6,80,123,45,0,27\n18,road,loading,7,0,140,51,0,4"
+                "example": "convoy_id,waytype,state,state_code,speed_kmh,x,y,z,route_index,facing_direction,next_x,next_y,next_z\n12,track,driving,6,80,123,45,0,27,northeast,124,44,0\n18,track,loading,7,0,140,51,0,4,east,141,51,0"
               }
             }
           },

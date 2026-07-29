@@ -1087,11 +1087,15 @@ struct way_snapshot_less_t {
 static const char *direction_name(ribi_t::ribi direction)
 {
 	switch (direction) {
-		case ribi_t::north: return "north";
-		case ribi_t::east:  return "east";
-		case ribi_t::south: return "south";
-		case ribi_t::west:  return "west";
-		default:            return "unknown";
+		case ribi_t::north:     return "north";
+		case ribi_t::northeast: return "northeast";
+		case ribi_t::east:      return "east";
+		case ribi_t::southeast: return "southeast";
+		case ribi_t::south:     return "south";
+		case ribi_t::southwest: return "southwest";
+		case ribi_t::west:      return "west";
+		case ribi_t::northwest: return "northwest";
+		default:                return "unknown";
 	}
 }
 
@@ -1322,7 +1326,7 @@ static std::string make_way_topology_csv(karte_t *world, const way_filter_t &fil
 static std::string make_positions_csv(karte_t *world, const waytype_filter_t &filter)
 {
 	std::ostringstream body;
-	body << "convoy_id,waytype,state,state_code,speed_kmh,x,y,z,route_index\r\n";
+	body << "convoy_id,waytype,state,state_code,speed_kmh,x,y,z,route_index,facing_direction,next_x,next_y,next_z\r\n";
 
 	const vector_tpl<convoihandle_t> &convoys = world->convoys();
 	for (size_t i = 0; i < convoys.get_count(); ++i) {
@@ -1340,6 +1344,7 @@ static std::string make_positions_csv(karte_t *world, const waytype_filter_t &fi
 		const sint32 measured_speed_kmh = speed_to_kmh(convoy->get_akt_speed());
 		const sint32 speed_kmh = measured_speed_kmh > 0 ? measured_speed_kmh : 0;
 		const koord3d position = convoy->get_pos();
+		const bool has_front = !convoy->in_depot() && convoy->get_vehicle_count() > 0 && convoy->front() != NULL;
 
 		body << handle.get_id() << ',' << waytype_name(waytype) << ','
 			<< convoy_state_name(state) << ',' << state << ',' << speed_kmh << ',';
@@ -1350,8 +1355,20 @@ static std::string make_positions_csv(karte_t *world, const waytype_filter_t &fi
 			body << ",,,";
 		}
 
-		if (!convoy->in_depot() && convoy->get_vehicle_count() > 0 && convoy->front() != NULL) {
+		if (has_front) {
 			body << convoy->front()->get_route_index();
+		}
+		body << ',';
+		if (has_front) {
+			body << direction_name(convoy->front()->get_direction());
+		}
+		body << ',';
+		const koord3d next_position = has_front ? convoy->front()->get_pos_next() : koord3d::invalid;
+		if (next_position != koord3d::invalid && next_position != convoy->front()->get_pos()) {
+			body << next_position.x << ',' << next_position.y << ',' << static_cast<int>(next_position.z);
+		}
+		else {
+			body << ",,";
 		}
 		body << "\r\n";
 	}
