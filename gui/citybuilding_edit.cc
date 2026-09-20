@@ -187,6 +187,9 @@ void citybuilding_edit_frame_t::refresh_preset_list(sint32 selection)
 	for (uint32 i = 0; i < presets.get_count(); ++i) {
 		cb_preset.new_component<gui_scrolled_list_t::const_text_scrollitem_t>(presets[i].name.c_str(), SYSCOL_TEXT);
 	}
+	if (selection < 0) {
+		selection = 0;
+	}
 	if (selection >= 0 && (uint32)selection < presets.get_count()) {
 		cb_preset.set_selection(selection);
 		strncpy(preset_name_value, presets[selection].name.c_str(), sizeof(preset_name_value) - 1);
@@ -374,7 +377,10 @@ bool citybuilding_edit_frame_t::action_triggered( gui_action_creator_t *comp,val
 	}
 	else if (comp == &cb_preset) {
 		const sint32 selection = cb_preset.get_selection();
-		if (selection >= 0 && (uint32)selection < presets.get_count()) {
+		const bool valid_selection = selection >= 0 && (uint32)selection < presets.get_count();
+		bt_preset_load.enable(valid_selection);
+		bt_preset_delete.enable(valid_selection);
+		if (valid_selection) {
 			strncpy(preset_name_value, presets[selection].name.c_str(), sizeof(preset_name_value) - 1);
 			preset_name_value[sizeof(preset_name_value) - 1] = 0;
 		}
