@@ -11,10 +11,11 @@
 #include "../sys/simsys.h"
 
 #include <stdio.h>
+#include <sys/stat.h>
 
 static std::string preset_path(const char *filename)
 {
-	return std::string(env_t::user_dir) + "citybuilding_presets/" + env_t::objfilename + filename;
+	return env_t::pak_dir + "config/" + filename;
 }
 
 static std::string tab_escape(const std::string &value)
@@ -64,7 +65,7 @@ void citybuilding_preset_load(vector_tpl<citybuilding_preset_t> &out)
 {
 	out.clear();
 	tabfile_t file;
-	const std::string path = preset_path("presets.tab");
+	const std::string path = preset_path("citybuilding_presets.tab");
 	if (!file.open(path.c_str())) {
 		return;
 	}
@@ -102,12 +103,16 @@ void citybuilding_preset_load(vector_tpl<citybuilding_preset_t> &out)
 
 bool citybuilding_preset_save(const vector_tpl<citybuilding_preset_t> &presets)
 {
-	const std::string pak_dir = preset_path("");
-	// objfilename is a relative pakset directory and already has a trailing separator.
-	dr_mkdir((std::string(env_t::user_dir) + "citybuilding_presets").c_str());
-	dr_mkdir(pak_dir.c_str());
-	const std::string path = preset_path("presets.tab");
-	const std::string temporary = preset_path("presets.tab.tmp");
+	const std::string config_dir = env_t::pak_dir + "config/";
+	if (dr_mkdir(config_dir.c_str()) != 0) {
+		struct stat info;
+		if (dr_stat(config_dir.c_str(), &info) != 0) {
+			return false;
+		}
+	}
+
+	const std::string path = preset_path("citybuilding_presets.tab");
+	const std::string temporary = preset_path("citybuilding_presets.tab.tmp");
 	FILE *file = dr_fopen(temporary.c_str(), "wb");
 	if (!file) return false;
 
@@ -122,7 +127,7 @@ bool citybuilding_preset_save(const vector_tpl<citybuilding_preset_t> &presets)
 		dr_remove(temporary.c_str());
 		return false;
 	}
-	const std::string backup = preset_path("presets.tab.bak");
+	const std::string backup = preset_path("citybuilding_presets.tab.bak");
 	FILE *existing = dr_fopen(path.c_str(), "rb");
 	const bool has_existing = existing != NULL;
 	if (existing) fclose(existing);
