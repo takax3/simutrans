@@ -16,7 +16,7 @@ struct citybuilding_preset_t {
 	std::vector<std::string> buildings;
 };
 
-// Read and write the local presets for the currently selected pakset.
+// Read and write presets in the config directory of the current pakset.
 void citybuilding_preset_load(vector_tpl<citybuilding_preset_t> &out);
 bool citybuilding_preset_save(const vector_tpl<citybuilding_preset_t> &presets);
 
