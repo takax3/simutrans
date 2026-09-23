@@ -32,6 +32,73 @@ cbuffer_t citybuilding_edit_frame_t::param_str;
 bool citybuilding_edit_frame_t::sortreverse = false;
 
 
+class citybuilding_preset_confirm_t : public gui_frame_t, private action_listener_t
+{
+public:
+	enum action_t {
+		overwrite,
+		remove
+	};
+
+	citybuilding_preset_confirm_t(action_t action, const citybuilding_preset_t &preset) :
+		gui_frame_t(translator::translate(action == overwrite ? "Overwrite preset" : "Delete preset")),
+		action(action),
+		preset(preset)
+	{
+		set_table_layout(1, 0);
+		question.printf(translator::translate(action == overwrite ? "Overwrite preset \"%s\"?" : "Delete preset \"%s\"?"), preset.name.c_str());
+		message.set_text_pointer(question.get_str());
+		add_component(&message);
+
+		gui_aligned_container_t *buttons = add_table(2, 1);
+		confirm.init(button_t::roundbox, action == overwrite ? "Overwrite" : "Delete preset");
+		cancel.init(button_t::roundbox, "Cancel");
+		confirm.add_listener(this);
+		cancel.add_listener(this);
+		buttons->add_component(&confirm);
+		buttons->add_component(&cancel);
+		end_table();
+
+		buttons->set_focus(&cancel);
+		set_focus(buttons);
+		reset_min_windowsize();
+		set_windowsize(get_min_windowsize());
+	}
+
+	bool action_triggered(gui_action_creator_t *comp, value_t) OVERRIDE
+	{
+		if (comp == &confirm) {
+			citybuilding_edit_frame_t *editor = dynamic_cast<citybuilding_edit_frame_t *>(win_get_magic(magic_edit_house));
+			if (editor) {
+				if (action == overwrite) {
+					editor->commit_preset_save(preset, true);
+				}
+				else {
+					editor->commit_preset_delete(preset.name);
+				}
+			}
+		}
+		destroy_win(this);
+		return true;
+	}
+
+private:
+	action_t action;
+	citybuilding_preset_t preset;
+	cbuffer_t question;
+	gui_label_t message;
+	button_t confirm;
+	button_t cancel;
+};
+
+
+static void show_preset_confirmation(citybuilding_preset_confirm_t::action_t action, const citybuilding_preset_t &preset)
+{
+	destroy_win(magic_citybuilding_preset_confirm);
+	create_win(new citybuilding_preset_confirm_t(action, preset), w_info, magic_citybuilding_preset_confirm);
+}
+
+
 static bool compare_building_desc(const building_desc_t* a, const building_desc_t* b)
 {
 	int diff = strcmp( a->get_name(), b->get_name() );
@@ -254,6 +321,18 @@ void citybuilding_edit_frame_t::save_preset()
 	}
 	sint32 index = -1;
 	for (uint32 i = 0; i < presets.get_count(); ++i) if (presets[i].name == preset.name) { index = (sint32)i; break; }
+	if (index >= 0) {
+		show_preset_confirmation(citybuilding_preset_confirm_t::overwrite, preset);
+		return;
+	}
+	commit_preset_save(preset, false);
+}
+
+void citybuilding_edit_frame_t::commit_preset_save(const citybuilding_preset_t &preset, bool require_existing)
+{
+	sint32 index = -1;
+	for (uint32 i = 0; i < presets.get_count(); ++i) if (presets[i].name == preset.name) { index = (sint32)i; break; }
+	if (require_existing && index < 0) return;
 	vector_tpl<citybuilding_preset_t> updated = presets;
 	if (index >= 0) updated[index] = preset; else { index = (sint32)updated.get_count(); updated.append(preset); }
 	if (!citybuilding_preset_save(updated)) {
@@ -270,6 +349,14 @@ void citybuilding_edit_frame_t::delete_preset()
 {
 	const sint32 index = cb_preset.get_selection();
 	if (index < 0 || (uint32)index >= presets.get_count()) return;
+	show_preset_confirmation(citybuilding_preset_confirm_t::remove, presets[index]);
+}
+
+void citybuilding_edit_frame_t::commit_preset_delete(const std::string &name)
+{
+	sint32 index = -1;
+	for (uint32 i = 0; i < presets.get_count(); ++i) if (presets[i].name == name) { index = (sint32)i; break; }
+	if (index < 0) return;
 	vector_tpl<citybuilding_preset_t> updated = presets;
 	updated.remove_at(index);
 	if (!citybuilding_preset_save(updated)) {

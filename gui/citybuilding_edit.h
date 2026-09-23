@@ -16,6 +16,7 @@
 
 class building_desc_t;
 class tool_build_house_t;
+class citybuilding_preset_confirm_t;
 
 
 /*
@@ -23,6 +24,8 @@ class tool_build_house_t;
  */
 class citybuilding_edit_frame_t : public extend_edit_gui_t
 {
+	friend class citybuilding_preset_confirm_t;
+
 private:
 	static tool_build_house_t* haus_tool;
 	static cbuffer_t param_str;
@@ -52,6 +55,8 @@ private:
 	void load_preset();
 	void save_preset();
 	void delete_preset();
+	void commit_preset_save(const citybuilding_preset_t &preset, bool require_existing);
+	void commit_preset_delete(const std::string &name);
 
 public:
 	citybuilding_edit_frame_t(player_t* player);
