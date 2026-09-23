@@ -859,3 +859,11 @@ Save the currently selected buildings as the named preset.
 現在選択している建物を、入力した名前のプリセットとして保存します。
 Delete the selected building preset.
 選択した建物プリセットを削除します。
+Overwrite preset
+プリセットの上書き
+Overwrite preset "%s"?
+プリセット「%s」を上書きしますか？
+Overwrite
+上書き
+Delete preset "%s"?
+プリセット「%s」を削除しますか？
