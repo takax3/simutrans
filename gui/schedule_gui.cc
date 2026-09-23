@@ -905,8 +905,8 @@ void schedule_gui_t::init(schedule_t* schedule_, player_t* player, convoihandle_
 		else {
 			new_component<gui_fill_t>();
 		}
-		bt_make_first.init(button_t::roundbox_state, "voranstellen");
-		bt_make_first.set_tooltip("voranstellen");
+		bt_make_first.init(button_t::roundbox_state, "Make first");
+		bt_make_first.set_tooltip("Reorder the schedule so the selected entry comes first.");
 		bt_make_first.add_listener(this);
 		bt_make_first.pressed = false;
 		add_component(&bt_make_first);
