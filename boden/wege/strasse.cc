@@ -21,6 +21,14 @@ const way_desc_t *strasse_t::default_strasse=NULL;
 bool strasse_t::show_masked_ribi = false;
 bool strasse_t::show_reservations = false;
 
+
+strasse_t *strasse_at(const koord3d &pos)
+{
+	const grund_t *gr = world()->lookup(pos);
+	return gr ? (strasse_t*)gr->get_weg(road_wt) : NULL;
+}
+
+
 void strasse_t::set_gehweg(bool janein)
 {
 	weg_t::set_gehweg(janein);
@@ -108,7 +116,7 @@ void strasse_t::rdwr(loadsave_t *file)
 		uint8 mask_oneway = get_ribi_mask_oneway();
 		file->rdwr_byte(mask_oneway);
 		set_ribi_mask_oneway(mask_oneway);
-		sint8 ov = get_overtaking_mode();
+		sint8 ov = get_overtaking_mode_raw();
 		file->rdwr_byte(ov);
 		overtaking_mode_t nov = (overtaking_mode_t)ov;
 		set_overtaking_mode(nov);
@@ -240,6 +248,24 @@ uint8 calc_reservation_flag(ribi_t::ribi dir_in, ribi_t::ribi dir_out) {
 	else if(  dir_in==ribi_t::west   &&  dir_out==ribi_t::east   ) { return 12;}
 	else if(  dir_in==ribi_t::west   &&  dir_out==ribi_t::south  ) { return 4; }
 	else { return 0; }
+}
+
+vehicle_base_t* strasse_t::get_reserver(vehicle_base_t* r, bool is_overtaking, koord3d pos_prev, koord3d pos_next) const {
+	ribi_t::ribi dir_in = ribi_type(get_pos(), pos_prev);
+	ribi_t::ribi dir_out = ribi_type(get_pos(), pos_next);
+	uint8 reservation_flag = calc_reservation_flag(dir_in, dir_out);
+	if(  reservation_flag==0  ) {
+		return NULL;
+	}
+	if(  (welt->get_settings().is_drive_left()  &&  !is_overtaking)  ||  (!welt->get_settings().is_drive_left()  &&  is_overtaking)  ) {
+		reservation_flag = (~reservation_flag)&0x0F;
+	}
+	for(uint8 i=0; i<4; i++) {
+		if(  (reservation_flag&(1<<i))!=0  &&  reserved_by[i]  &&  reserved_by[i]!=r  ) {
+			return reserved_by[i];
+		}
+	}
+	return NULL;
 }
 
 bool strasse_t::is_reserved_by_others(vehicle_base_t* r, bool is_overtaking, koord3d pos_prev, koord3d pos_next) {

@@ -10,6 +10,7 @@
 #include "../simdebug.h"
 
 #include "../dataobj/koord3d.h"
+#include "../dataobj/ribi.h"
 
 #include "../tpl/vector_tpl.h"
 
@@ -93,6 +94,19 @@ public:
 	 */
 	const koord3d& at(const uint16 n) const { return route[n]; }
 
+	/**
+	 * The two tile-local direction bits occupied at route index @p index: the bit pointing back
+	 * to the previous tile, plus the bit pointing on to the next one ("corner set", the value
+	 * schiene_t::reserve() stores as the reservation direction).
+	 * On a tile carrying two same-waytype disjoint diagonal legs it also tells the two legs
+	 * apart -- only the leg the route actually runs over owns these bits -- so it is the right
+	 * argument for grund_t::get_weg(waytype, dir) whenever a route index is at hand.
+	 */
+	ribi_t::ribi get_corner_set(uint32 index) const;
+
+	/// heading with which the tile at @p index is entered (see schiene_t::reserve())
+	ribi_t::ribi get_travel_dir(uint32 index) const;
+
 	koord3d const& front() const { return route.front(); }
 
 	koord3d const& back() const { return route.back(); }
@@ -136,7 +150,7 @@ public:
 	 * Finds route to a location, where @p tdriver->is_target becomes true.
 	 * @param max_depth is the maximum length of a route
 	 */
-	bool find_route(karte_t *w, const koord3d start, test_driver_t *tdriver, const uint32 max_khm, uint8 start_dir, uint32 max_depth, const bool need_electric, const bool length_based = false, bool coupling = false, const uint8 choose_margin=0 );
+	bool find_route(karte_t *w, const koord3d start, test_driver_t *tdriver, const uint32 max_khm, uint8 start_dir, uint32 max_depth, const bool need_electric, const bool length_based = false, bool coupling = false, const uint8 choose_margin=0, const bool ignore_length=false );
 
 	/**
 	 * Calculates the route from @p start to @p target
