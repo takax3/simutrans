@@ -207,7 +207,7 @@ void savegame_frame_t::add_section(std::string &name){
 void savegame_frame_t::add_path(const char * path){
 
 	if (!this->searchpath_defined) {
-		sprintf(this->searchpath, "%s", path);
+		this->searchpath = path;
 		this->searchpath_defined = true;
 	}
 	this->paths.append(path);
@@ -470,34 +470,31 @@ bool savegame_frame_t::infowin_event(const event_t *event)
  */
 bool savegame_frame_t::action_triggered(gui_action_creator_t *component, value_t )
 {
-	char buf[PATH_MAX];
+	std::string fullpath;
 
 	if(component==&input  ||  component==&savebutton) {
 		// Save/Load Button or Enter-Key pressed
 		//---------------------------------------
 		if(strstart(ibuf, "net:")) {
-			tstrncpy(buf, ibuf, lengthof(buf));
+			fullpath = ibuf;
 		}
 		else {
 			if(searchpath_defined) {
-				tstrncpy(buf, searchpath, lengthof(buf));
+				fullpath = searchpath;
 			}
-			else {
-				buf[0] = 0;
-			}
-			strcat(buf, ibuf);
+			fullpath += ibuf;
 			if(suffix) {
-				strcat(buf, suffix);
+				fullpath += suffix;
 			}
 		}
-		ok_action(buf);
+		ok_action(fullpath.c_str());
 		if (close_after_ok()) destroy_win(this);
 
 	}
 	else if(component == &cancelbutton) {
 		// Cancel-button pressed
 		//----------------------------
-		cancel_action(buf);
+		cancel_action(fullpath.c_str());
 		destroy_win(this);
 	}
 	else {
