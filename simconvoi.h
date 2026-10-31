@@ -629,6 +629,7 @@ private:
 	bool has_loading_demand_at(uint8 stop_index) const;
 	bool has_loading_demand_ahead() const;
 	bool check_loading_demand(halthandle_t halt, bool departure_cond);
+	void clear_abandoned_departure_times();
 
 	void reverse_vehicles_at_halt_if_needed();
 	void reverse_vehicles();

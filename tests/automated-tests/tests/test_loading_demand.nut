@@ -357,3 +357,35 @@ function test_loading_demand_existing_goods_second_convoy()
 	loading_slot_wait_until(slot + interval + month / 16)
 	foreach (cnv in f.convoys) { ASSERT_TRUE(cnv.get_transported_goods()[0] > 0) }
 }
+
+function test_loading_demand_line_update_clears_bound()
+{
+	local f = demand_fixture(1 << 24, 0, 0, 0, true, 0)
+	local pl = player_x(0)
+	ASSERT_TRUE(pl.create_line(wt_road))
+	local lines = pl.get_line_list()
+	local line = lines[lines.get_count() - 1]
+	local s = f.cnv.get_schedule()
+	s.entries[0].spacing = 64
+	s.entries[0].spacing_shift = 0
+	s.departure_slot_group_id = line
+	line.change_schedule(pl, s)
+	f.cnv.set_line(pl, line)
+	// Keep steps shorter than the normal 2000-tick loading interval so the
+	// update occurs after abandoning a slot and before reserving another one.
+	debug.set_game_speed(1)
+	demand_start(f)
+	local interval = f.month / 64
+	local slot = ((world.get_time().ticks + 2000) / interval + 1) * interval
+	demand_wait_until(slot - 500)
+	ASSERT_EQUAL(f.cnv.get_schedule().current, 0)
+	s = line.get_schedule()
+	s.entries[0].delay_tolerance = 90
+	line.change_schedule(pl, s)
+	demand_generate(7, 2)
+	local deadline = slot + 4000
+	while (f.cnv.get_schedule().current == 0) {
+		ASSERT_LESS(world.get_time().ticks, deadline)
+		sleep()
+	}
+}

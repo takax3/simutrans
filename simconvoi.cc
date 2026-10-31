@@ -2751,7 +2751,7 @@ bool convoi_t::set_schedule(schedule_t * f)
 		return false;
 	}
 
-	clear_abandoned_departure_time();
+	clear_abandoned_departure_times();
 	DBG_DEBUG("convoi_t::set_schedule()", "new=%p, old=%p", f, schedule);
 	assert(f != NULL);
 
@@ -5150,7 +5150,9 @@ void convoi_t::hat_gehalten(halthandle_t halt, uint32 halt_length_in_vehicle_ste
 		departure_cond = false;
 	}
 
+	const bool departure_without_demand = departure_cond;
 	departure_cond = check_loading_demand(halt, departure_cond);
+	const bool waiting_for_demand = departure_without_demand && !departure_cond;
 
 	// loading is finished => maybe drive on
 	if(  is_coupled()  ||  departure_cond  ) {
@@ -5194,7 +5196,9 @@ void convoi_t::hat_gehalten(halthandle_t halt, uint32 halt_length_in_vehicle_ste
 	INT_CHECK( "convoi_t::hat_gehalten" );
 
 	// at least wait the minimum time for loading
-	if(  !is_coupled()  &&  scheduled_departure_time>0  ) {
+	// Once demand blocks an eligible departure, keep the regular loading interval.
+	// Shortening it to a past slot would otherwise poll the whole halt every step.
+	if(  !is_coupled()  &&  scheduled_departure_time>0  &&  !waiting_for_demand  ) {
 		const sint64 ticks_remain = (uint64)scheduled_departure_time - (uint64)time - (uint64)welt->get_ticks();
 		if(  ticks_remain<(sint64)time  ) {
 			// this convoy is about to start. we don't want to wait for 2000 ms or more.
@@ -5754,6 +5758,9 @@ bool convoi_t::matches_halt( const koord3d pos1, const koord3d pos2 )
 void convoi_t::check_pending_updates()
 {
 	if(  line_update_pending.is_bound()  ) {
+		// Any changed schedule invalidates the whole train's old search bound.
+		// Otherwise a coupled child could restore it when the parent retries.
+		clear_abandoned_departure_times();
 		// create dummy schedule
 		if(  schedule==NULL  ) {
 			schedule = create_schedule();
@@ -7504,6 +7511,14 @@ convoihandle_t convoi_t::find_most_child_convoi() const
 		c = c->get_coupling_convoi();
 	}
 	return c;
+}
+
+
+void convoi_t::clear_abandoned_departure_times()
+{
+	for(  convoihandle_t c = get_most_parent_convoi();  c.is_bound();  c = c->get_coupling_convoi()  ) {
+		c->clear_abandoned_departure_time();
+	}
 }
 
 

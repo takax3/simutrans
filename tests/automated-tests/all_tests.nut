@@ -306,6 +306,7 @@ all_tests <- [
 	test_schedule_entry_time_statistics,
 	test_loading_demand_pickup_at_skippable_stop,
 	test_loading_demand_existing_goods_second_convoy,
+	test_loading_demand_line_update_clears_bound,
 	test_loading_demand_slot_conflict,
 	test_loading_demand_slot_after_expiry,
 	test_loading_demand_full_convoy_pickup,
