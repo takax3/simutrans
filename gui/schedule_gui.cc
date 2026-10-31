@@ -651,6 +651,11 @@ void schedule_gui_t::init(schedule_t* schedule_, player_t* player, convoihandle_
 		bt_no_go_no_users.add_listener(this);
 		bt_no_go_no_users.disable();
 		add_component(&bt_no_go_no_users);
+		bt_wait_for_demand.init(button_t::square_state, "Wait for demand at later stops");
+		bt_wait_for_demand.set_tooltip("Wait here until a later stop needs loading or unloading. Search beyond stops skipped without demand.");
+		bt_wait_for_demand.add_listener(this);
+		bt_wait_for_demand.disable();
+		add_component(&bt_wait_for_demand);
 		add_component(&sp_load_settings);
 
 		bt_temp_load.init(button_t::square_state, "load temporary");
@@ -1087,6 +1092,7 @@ void schedule_gui_t::update_selection()
 	bt_start_shipped.disable();
 	bt_max_speed_kmh_of_convoi.disable();
 	bt_no_go_no_users.disable();
+	bt_wait_for_demand.disable();
 	numimp_max_speed_kmh_of_convoi.disable();
 	bt_balance_speed_kmh_of_convoi.disable();
 	numimp_balance_speed_kmh_of_convoi.disable();
@@ -1174,6 +1180,8 @@ void schedule_gui_t::update_selection()
 			bt_temp_unload.pressed = schedule->at(current_stop).is_temp_unload();
 			bt_temp_unload_all.enable();
 			bt_temp_unload_all.pressed = schedule->at(current_stop).is_temp_unload_all();
+			bt_wait_for_demand.enable();
+			bt_wait_for_demand.pressed = schedule->at(current_stop).is_wait_for_demand();
 			bt_no_go_no_users.enable();
 			bt_no_go_no_users.pressed = schedule->at(current_stop).is_no_go_no_users();
 			
@@ -1505,6 +1513,12 @@ dbg->message("schedule_gui_t::action_triggered()","comp=%p combo=%p",comp,&line_
 			} else {
 				schedule->at(schedule->get_current_stop()).waiting_time_shift = 0;
 			}
+			update_selection();
+		}
+	}
+	else if(comp == &bt_wait_for_demand) {
+		if(  !schedule->empty()  ) {
+			schedule->at(schedule->get_current_stop()).set_wait_for_demand(!bt_wait_for_demand.pressed);
 			update_selection();
 		}
 	}
@@ -2268,6 +2282,7 @@ void schedule_gui_t::extract_loading_settings(bool yesno) {
 	numimp_max_load.set_visible(yesno);
 	bt_max_load_all_stops.set_visible(yesno);
 	bt_no_go_no_users.set_visible(yesno);
+	bt_wait_for_demand.set_visible(yesno);
 	bt_temp_load.set_visible(yesno);
 	bt_temp_unload.set_visible(yesno);
 	bt_temp_unload_all.set_visible(yesno);

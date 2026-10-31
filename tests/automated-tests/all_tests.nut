@@ -45,6 +45,7 @@ include("tests/test_way_tunnel")
 include("tests/test_wayobj")
 include("tests/test_schedule")
 include("tests/test_loading_departure_slot")
+include("tests/test_loading_demand")
 include("tests/test_road_api")
 include("tests/test_road_choose")
 include("tests/test_priority_signal")
@@ -303,6 +304,29 @@ all_tests <- [
 	test_schedule_next_line_non_null,
 	test_schedule_current,
 	test_schedule_entry_time_statistics,
+	test_loading_demand_pickup_at_skippable_stop,
+	test_loading_demand_existing_goods_second_convoy,
+	test_loading_demand_slot_conflict,
+	test_loading_demand_slot_after_expiry,
+	test_loading_demand_full_convoy_pickup,
+	test_loading_demand_pickup,
+	test_loading_demand_off,
+	test_loading_demand_unload,
+	test_loading_demand_skip_chain,
+	test_loading_demand_blocking_stop,
+	test_loading_demand_no_load,
+	test_loading_demand_no_unload,
+	test_loading_demand_unload_all,
+	test_loading_demand_loading_limit,
+	test_loading_demand_timeout,
+	test_loading_demand_waypoint,
+	test_loading_demand_repeated_stop,
+	test_loading_demand_pass_stop,
+	test_loading_demand_depot,
+	test_loading_demand_full_scan,
+	test_loading_demand_slot_within_tolerance,
+	test_loading_demand_slot_zero_tolerance,
+	test_loading_demand_slot_long_tolerance,
 	test_loading_departure_slot_after_long_wait,
 	test_loading_departure_slot_delay_tolerance,
 	test_loading_departure_slot_wait_timeout,

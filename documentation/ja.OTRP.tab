@@ -979,3 +979,7 @@ Thumbnails
 サムネイル表示
 Large thumbnails
 大きく表示
+Wait for demand at later stops
+先の停車駅に需要がなければ待機
+Wait here until a later stop needs loading or unloading. Search beyond stops skipped without demand.
+先の停車駅に乗降・積み降ろし需要が生じるまで待機します。需要がない場合に通過する駅は、その先も確認します。

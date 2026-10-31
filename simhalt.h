@@ -844,6 +844,9 @@ public:
 
 	void fetch_loadable_fresh_goods(vector_tpl<loadable_fresh_goods_t>& to, const uint8 goods_category_index, const vector_tpl<halthandle_t>& destination_halts);
 
+	// Read-only demand query: includes existing goods and preserves their fresh/statistics state.
+	bool has_loadable_goods(uint8 goods_category_index, const vector_tpl<halthandle_t>& destination_halts) const;
+
 	// Book revenue for passengers that just boarded a vehicle at this halt.
 	void book_pax_boarding_revenue(uint16 boarded_pax);
 

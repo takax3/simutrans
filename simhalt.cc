@@ -358,6 +358,20 @@ struct haltestelle_t::cargo_queue_t {
 			}
 		}
 
+		bool has_loadable_goods(const vector_tpl<halthandle_t>& destination_halts) const {
+			FOR(const vector_tpl<halthandle_t>, const& halt, destination_halts) {
+				const auto found = zwischenziel_index.find(halt.get_id());
+				if(  found!=zwischenziel_index.end()  ) {
+					for(  const auto &item : found->second  ) {
+						if(  item->cargo->goods.menge>0  ) {
+							return true;
+						}
+					}
+				}
+			}
+			return false;
+		}
+
 		void fetch_loadable_fresh_goods(vector_tpl<loadable_fresh_goods_t>& to_array, const vector_tpl<halthandle_t>& destination_halts) {
 			auto iterator = fresh_index.begin();
 			while (iterator != fresh_index.end()) {
@@ -5504,6 +5518,13 @@ void haltestelle_t::extinguish_all_waiting_goods() {
 		}
 		goods_list->clear();
 	}
+}
+
+
+bool haltestelle_t::has_loadable_goods(uint8 goods_category_index, const vector_tpl<halthandle_t>& destination_halts) const
+{
+	const cargo_queue_t *wares = cargo[goods_category_index];
+	return wares!=NULL  &&  wares->has_loadable_goods(destination_halts);
 }
 
 

@@ -402,6 +402,8 @@ private:
 	 * 0 means departure slot is not reserved.
 	 */
 	uint32 scheduled_departure_time;
+	// Last slot abandoned while waiting for demand; zero means no search lower bound.
+	uint32 abandoned_departure_time = 0;
 	uint32 scheduled_coupling_delay_tolerance;
 
 	uint32 time_last_arrived;
@@ -618,6 +620,11 @@ private:
 	/// A sub routine of hat_gehalten()
 	/// Pushes the convoy stopping time at the current halt to the schedule
 	void push_convoy_stopping_time();
+
+	// Demand helpers never change the schedule position. Only the parent gates departure.
+	bool has_loading_demand_at(uint8 stop_index) const;
+	bool has_loading_demand_ahead() const;
+	bool check_loading_demand(halthandle_t halt, bool departure_cond);
 
 	void reverse_vehicles_at_halt_if_needed();
 	void reverse_vehicles();
@@ -1444,7 +1451,8 @@ public:
 	void set_arrived_time(uint32 t) { arrived_time = t; }
 	uint32 get_arrived_time() const { return arrived_time; }
 	uint32 get_departure_time() const { return scheduled_departure_time; } // in ticks.
-	void reset_departure_time() { scheduled_departure_time = 0; }
+	uint32 get_abandoned_departure_time() const { return abandoned_departure_time; }
+	void reset_departure_time() { scheduled_departure_time = abandoned_departure_time = 0; }
 	/**
 	 * Give the booked departure slot back to the halt and forget it.
 	 * Use this when the convoy leaves the stop WITHOUT departing in its slot (next stop button,

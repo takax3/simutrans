@@ -73,7 +73,8 @@ public:
 		// vehicles' shipping capacity and from its schedule - so a carrier needs no flag of
 		// its own. Only the carried convoy has to declare itself, because otherwise it would
 		// simply drive off. (NO_LOAD on a carrier's entry doubles as "do not pick up here".)
-		START_SHIPPED     = 1U<<23 // This convoy waits here to be taken aboard a carrier convoy.
+		START_SHIPPED     = 1U<<23, // This convoy waits here to be taken aboard a carrier convoy.
+		WAIT_FOR_DEMAND  = 1U<<24 // Wait here until a later scheduled stop has loading/unloading demand.
 	};
 
 	/**
@@ -222,6 +223,9 @@ public:
 	// convoy shipping (a convoy carried aboard another convoy)
 	bool is_start_shipped() const { return (stop_flags&START_SHIPPED)>0; }
 	void set_start_shipped(bool y) { y ? stop_flags |= START_SHIPPED : stop_flags &= ~START_SHIPPED; }
+
+	bool is_wait_for_demand() const { return (stop_flags & WAIT_FOR_DEMAND) != 0; }
+	void set_wait_for_demand(bool y) { y ? stop_flags |= WAIT_FOR_DEMAND : stop_flags &= ~WAIT_FOR_DEMAND; }
 
 	void set_spacing(uint16 a, uint16 b, uint16 c) {
 		spacing = a;
