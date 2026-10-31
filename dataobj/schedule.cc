@@ -743,7 +743,7 @@ bool schedule_t::sscanf_schedule( const char *ptr )
 
 void construct_schedule_entry_attributes(cbuffer_t& buf, schedule_entry_t const& entry) {
 	uint8 cnt = 1;
-	char str[24];
+	char str[25];
 	str[0] = '[';
 	const uint32 flag = entry.get_stop_flags();
 	if(  flag&schedule_entry_t::WAIT_FOR_COUPLING  ) {
@@ -804,6 +804,10 @@ void construct_schedule_entry_attributes(cbuffer_t& buf, schedule_entry_t const&
 	}
 	if(  entry.is_no_go_no_users()  ) {
 		str[cnt] = 'G';
+		cnt++;
+	}
+	if(  entry.is_wait_for_demand()  ) {
+		str[cnt] = 'D';
 		cnt++;
 	}
 	if(  entry.is_pass_stop()  ) {
