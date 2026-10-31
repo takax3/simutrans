@@ -402,8 +402,12 @@ private:
 	 * 0 means departure slot is not reserved.
 	 */
 	uint32 scheduled_departure_time;
-	// Last slot abandoned while waiting for demand; zero means no search lower bound.
+	// Last slot abandoned while waiting for demand; tick zero is a valid lower bound.
 	uint32 abandoned_departure_time = 0;
+	bool abandoned_departure_time_valid = false;
+
+	void set_abandoned_departure_time(uint32 ticks) { abandoned_departure_time = ticks; abandoned_departure_time_valid = true; }
+	void clear_abandoned_departure_time() { abandoned_departure_time = 0; abandoned_departure_time_valid = false; }
 	uint32 scheduled_coupling_delay_tolerance;
 
 	uint32 time_last_arrived;
@@ -1451,8 +1455,9 @@ public:
 	void set_arrived_time(uint32 t) { arrived_time = t; }
 	uint32 get_arrived_time() const { return arrived_time; }
 	uint32 get_departure_time() const { return scheduled_departure_time; } // in ticks.
+	bool has_abandoned_departure_time() const { return abandoned_departure_time_valid; }
 	uint32 get_abandoned_departure_time() const { return abandoned_departure_time; }
-	void reset_departure_time() { scheduled_departure_time = abandoned_departure_time = 0; }
+	void reset_departure_time() { scheduled_departure_time = 0; clear_abandoned_departure_time(); }
 	/**
 	 * Give the booked departure slot back to the halt and forget it.
 	 * Use this when the convoy leaves the stop WITHOUT departing in its slot (next stop button,

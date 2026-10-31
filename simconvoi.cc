@@ -127,7 +127,7 @@ void convoi_t::init(player_t *player)
 	no_load = false;
 	wait_lock = 0;
 	arrived_time = 0;
-	scheduled_departure_time = abandoned_departure_time = 0;
+	reset_departure_time();
 	scheduled_coupling_delay_tolerance = 0;
 	time_last_arrived = 0;
 
@@ -2105,8 +2105,10 @@ void convoi_t::new_month()
 	if(  welt->get_ticks()<welt->ticks_per_world_month && (scheduled_departure_time!=0)  ) {
 		scheduled_departure_time %= welt->ticks_per_world_month;
 	}
-	if(  welt->get_ticks()<welt->ticks_per_world_month  &&  abandoned_departure_time!=0  ) {
-		abandoned_departure_time %= welt->ticks_per_world_month;
+	if(  welt->get_ticks()<welt->ticks_per_world_month  &&  has_abandoned_departure_time()  ) {
+		// The world subtracts 2^32 - ticks_per_world_month, not the slot's
+		// own month offset. Unsigned addition preserves past and future bounds.
+		abandoned_departure_time += welt->ticks_per_world_month;
 	}
 }
 
@@ -2134,7 +2136,7 @@ void convoi_t::betrete_depot(depot_t *dep, bool is_loading)
 		if(  c != self  &&  c->is_carrying_convoys()  ) {
 			c->disembark_all_forced();
 		}
-		c->abandoned_departure_time = 0;
+		c->clear_abandoned_departure_time();
 		c->uncouple_convoi();
 		if( c->reversed ) {
 			// reversing in depot flag is recorded in c->reversing_needed
@@ -2256,7 +2258,7 @@ void convoi_t::ziel_erreicht()
 	}
 
 	// reset departure time in case the variable is not reset.
-	scheduled_departure_time = abandoned_departure_time = 0;
+	reset_departure_time();
 	c = self;
 	while(  c.is_bound()  ) {
 		c->reset_departure_time();
@@ -2749,7 +2751,7 @@ bool convoi_t::set_schedule(schedule_t * f)
 		return false;
 	}
 
-	abandoned_departure_time = 0;
+	clear_abandoned_departure_time();
 	DBG_DEBUG("convoi_t::set_schedule()", "new=%p, old=%p", f, schedule);
 	assert(f != NULL);
 
@@ -3971,9 +3973,10 @@ void convoi_t::rdwr(loadsave_t *file)
 
 	if(  file->get_OTRP_version()>=63  ) {
 		file->rdwr_long(abandoned_departure_time);
+		file->rdwr_bool(abandoned_departure_time_valid);
 	}
 	else if(  file->is_loading()  ) {
-		abandoned_departure_time = 0;
+		clear_abandoned_departure_time();
 	}
 
 	if(  file->get_OTRP_version()>=31  ) {
@@ -4537,7 +4540,7 @@ bool can_depart(convoihandle_t cnv, halthandle_t halt, uint32 arrived_time, uint
 		sint64 slot = calibrated_search_time * (sint64)current_entry.spacing / (sint64)world()->ticks_per_world_month + (sint64)(calibrated_search_time<0?0:1);
 		// go_on_ticks = slot * spacing + spacing_shift
 		go_on_ticks = slot * world()->ticks_per_world_month / current_entry.spacing + spacing_shift;
-		if(  current_entry.is_wait_for_demand()  &&  cnv->get_abandoned_departure_time()!=0  ) {
+		if(  current_entry.is_wait_for_demand()  &&  cnv->has_abandoned_departure_time()  ) {
 			while(  !is_first_ticks_bigger(go_on_ticks, cnv->get_abandoned_departure_time())  ) {
 				slot++;
 				go_on_ticks = slot * world()->ticks_per_world_month / current_entry.spacing + spacing_shift;
@@ -4763,7 +4766,7 @@ bool convoi_t::check_loading_demand(halthandle_t halt, bool departure_cond)
 		for(  convoihandle_t cc = self;  cc.is_bound();  cc = cc->get_coupling_convoi()  ) {
 			if(  cc->scheduled_departure_time==abandoned  ) {
 				cc->release_departure_slot(halt);
-				cc->abandoned_departure_time = abandoned;
+				cc->set_abandoned_departure_time(abandoned);
 			}
 		}
 		return false;
@@ -5088,8 +5091,8 @@ void convoi_t::hat_gehalten(halthandle_t halt, uint32 halt_length_in_vehicle_ste
 		if(  schedule->get_current_entry().is_wait_for_demand()  ) {
 			// A coupling reversal may have changed the parent since a slot was abandoned.
 			for(  convoihandle_t cc = coupling_convoi;  cc.is_bound();  cc = cc->get_coupling_convoi()  ) {
-				if(  cc->abandoned_departure_time!=0  &&  (abandoned_departure_time==0  ||  is_first_ticks_bigger(cc->abandoned_departure_time, abandoned_departure_time))  ) {
-					abandoned_departure_time = cc->abandoned_departure_time;
+				if(  cc->has_abandoned_departure_time()  &&  (!has_abandoned_departure_time()  ||  is_first_ticks_bigger(cc->abandoned_departure_time, abandoned_departure_time))  ) {
+					set_abandoned_departure_time(cc->get_abandoned_departure_time());
 				}
 			}
 		}
@@ -5098,11 +5101,11 @@ void convoi_t::hat_gehalten(halthandle_t halt, uint32 halt_length_in_vehicle_ste
 		convoihandle_t holder;
 		for(  convoihandle_t cc = coupling_convoi;  cc.is_bound();  cc = cc->get_coupling_convoi()  ) {
 			if(  cc->get_departure_time()>0  &&  halt->is_departure_booked_by(cc->get_departure_time(), self)  ) {
-				if(  schedule->get_current_entry().is_wait_for_demand()  &&  abandoned_departure_time!=0  &&
+				if(  schedule->get_current_entry().is_wait_for_demand()  &&  has_abandoned_departure_time()  &&
 					!is_first_ticks_bigger(cc->get_departure_time(), abandoned_departure_time)  ) {
 					// Do not inherit another child's obsolete slot after abandoning a later one.
 					cc->release_departure_slot(halt);
-					cc->abandoned_departure_time = abandoned_departure_time;
+					cc->set_abandoned_departure_time(abandoned_departure_time);
 					continue;
 				}
 				holder = cc;
@@ -5169,7 +5172,7 @@ void convoi_t::hat_gehalten(halthandle_t halt, uint32 halt_length_in_vehicle_ste
 			loading_waiting_time = 0;
 			coupling_done = false;
 			waiting_for_departure_allowance_by_other_convoy = false;
-			scheduled_departure_time = abandoned_departure_time = 0;
+			reset_departure_time();
 			// Advance schedule of coupling convoy recursively.
 			convoihandle_t c_cnv = coupling_convoi;
 			while(  c_cnv.is_bound()  ) {
@@ -7505,7 +7508,7 @@ convoihandle_t convoi_t::find_most_child_convoi() const
 
 
 void convoi_t::release_departure_slot(halthandle_t halt) {
-	abandoned_departure_time = 0;
+	clear_abandoned_departure_time();
 	if(  scheduled_departure_time==0  ) {
 		return;
 	}
@@ -7524,7 +7527,7 @@ void convoi_t::release_departure_slot(halthandle_t halt) {
 	if(  halt.is_bound()  ) {
 		halt->erase_departure(scheduled_departure_time, self);
 	}
-	scheduled_departure_time = abandoned_departure_time = 0;
+	reset_departure_time();
 }
 
 
